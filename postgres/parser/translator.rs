@@ -6603,6 +6603,40 @@ mod tests {
     }
 
     #[test]
+    fn test_compound_select_order_by_nulls_ordering() {
+        let translator = PostgreSQLTranslator::new();
+        let sql = "SELECT a FROM t1 UNION SELECT a FROM t2 ORDER BY a NULLS LAST";
+        let parsed = crate::parse(sql).unwrap();
+        let translated = translator.translate(&parsed).unwrap();
+
+        let ast::Stmt::Select(select) = translated else {
+            panic!("expected Select statement");
+        };
+        assert_eq!(select.body.compounds.len(), 1, "expected one UNION arm");
+        assert_eq!(select.order_by.len(), 1);
+        assert_eq!(select.order_by[0].nulls, Some(ast::NullsOrder::Last));
+    }
+
+    #[test]
+    fn test_values_order_by_nulls_ordering() {
+        let translator = PostgreSQLTranslator::new();
+        let sql = "VALUES (1), (NULL), (2) ORDER BY 1 NULLS LAST";
+        let parsed = crate::parse(sql).unwrap();
+        let translated = translator.translate(&parsed).unwrap();
+
+        let ast::Stmt::Select(select) = translated else {
+            panic!("expected Select statement");
+        };
+        assert!(
+            matches!(select.body.select, ast::OneSelect::Values(_)),
+            "expected a VALUES body, got {:?}",
+            select.body.select
+        );
+        assert_eq!(select.order_by.len(), 1);
+        assert_eq!(select.order_by[0].nulls, Some(ast::NullsOrder::Last));
+    }
+
+    #[test]
     fn test_window_order_by_nulls_ordering() {
         let translator = PostgreSQLTranslator::new();
         let sql = "SELECT ROW_NUMBER() OVER (ORDER BY salary NULLS LAST) FROM t";
