@@ -187,7 +187,7 @@ INTEGER. Unknown type names pass through as custom types.
 | SYSTEM_USER | ❌ Not supported | current_user/current_role return stub values |
 | TABLE statement | ✅ Supported | |
 | Underscores (_) for thousands separators | ✅ Supported | |
-| unnest/array_agg | 🟡 Partial | array_agg works; unnest is not implemented |
+| unnest/array_agg | 🟡 Partial | array_agg works; unnest(array) expands one array into rows; multiple-argument unnest and column aliases on the function (`AS t(x)`) are not supported |
 | Upsert (INSERT ... ON CONFLICT DO ...) | ✅ Supported | DO NOTHING and DO UPDATE SET ... (with EXCLUDED and conflict targets) |
 | Window functions | 🟡 Partial | Aggregate window functions (COUNT/SUM/AVG/MIN/MAX OVER), row_number, PARTITION BY/ORDER BY, frame clauses, and named WINDOW clauses work; rank, dense_rank, lag, lead, etc. are not implemented |
 | WITHIN GROUP clause | ❌ Not supported | Silently dropped; ordered-set aggregates (percentile_cont) missing |
