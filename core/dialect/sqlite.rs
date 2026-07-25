@@ -3,7 +3,7 @@
 //! [`SqliteDialect`] is the [`super::Dialect`] for SQLite: schema
 //! rows are plain SQLite text parsed with the SQLite parser. The catalog
 //! tables here (`pragma_*` table-valued functions, `json_each`/`json_tree`,
-//! `sqlite_dbpage`, `btree_dump`, and `sqlite_turso_types`) are registered
+//! `unnest`, `sqlite_dbpage`, `btree_dump`, and `sqlite_turso_types`) are registered
 //! into every fresh schema by [`crate::schema::Schema::with_options`]
 //! through [`register_builtin_catalog`].
 
@@ -148,6 +148,7 @@ pub fn register_builtin_catalog(
         schema.register_internal_vtab(crate::json::vtab::JsonVirtualTable::json_each())?;
         schema.register_internal_vtab(crate::json::vtab::JsonVirtualTable::json_tree())?;
     }
+    schema.register_internal_vtab(crate::unnest::UnnestVirtualTable::new())?;
     #[cfg(feature = "cli_only")]
     {
         schema.register_internal_vtab(crate::dbpage::DbPageTable::new())?;

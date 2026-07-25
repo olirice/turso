@@ -517,6 +517,39 @@ SELECT array_length(array_agg(val)) FROM t;
 
 ---
 
+## Table-Valued Function
+
+### unnest
+
+Expands an array into one row per element.
+
+```sql
+SELECT * FROM unnest(array);
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `array` | any | The array to expand |
+
+**Output columns:**
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `value` | any | The element of the array for this row |
+
+```sql
+SELECT value FROM unnest(ARRAY[1, 2, 3]);
+-- 1
+-- 2
+-- 3
+
+SELECT value FROM unnest(ARRAY['a', 'b']);
+-- a
+-- b
+```
+
+---
+
 ## Array Operators
 
 ### Containment: @>

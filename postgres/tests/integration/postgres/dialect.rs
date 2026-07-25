@@ -2055,6 +2055,109 @@ fn test_postgres_generate_series(db: TempDatabase) {
 }
 
 #[turso_macros::test(mvcc)]
+fn test_postgres_unnest(db: TempDatabase) {
+    let conn = db.connect_postgres();
+
+    // Basic unnest(array) over an integer array
+    let mut stmt = conn
+        .prepare("SELECT value FROM unnest(ARRAY[1, 2, 3])")
+        .unwrap();
+    let mut results: Vec<i64> = Vec::new();
+    loop {
+        match stmt.step().unwrap() {
+            StepResult::Row => {
+                let row = stmt.row().unwrap();
+                if let Value::Numeric(Numeric::Integer(v)) = row.get_value(0) {
+                    results.push(*v);
+                }
+            }
+            StepResult::Done => break,
+            _ => {}
+        }
+    }
+    assert_eq!(results, vec![1, 2, 3]);
+    drop(stmt);
+
+    // unnest over a text array
+    let mut stmt = conn
+        .prepare("SELECT value FROM unnest(ARRAY['alpha', 'beta'])")
+        .unwrap();
+    let mut results: Vec<String> = Vec::new();
+    loop {
+        match stmt.step().unwrap() {
+            StepResult::Row => {
+                let row = stmt.row().unwrap();
+                results.push(row.get_value(0).to_string());
+            }
+            StepResult::Done => break,
+            _ => {}
+        }
+    }
+    assert_eq!(results, vec!["alpha", "beta"]);
+    drop(stmt);
+
+    // unnest with alias
+    let mut stmt = conn
+        .prepare("SELECT value FROM unnest(ARRAY[1, 2, 3]) AS u")
+        .unwrap();
+    let mut results: Vec<i64> = Vec::new();
+    loop {
+        match stmt.step().unwrap() {
+            StepResult::Row => {
+                let row = stmt.row().unwrap();
+                if let Value::Numeric(Numeric::Integer(v)) = row.get_value(0) {
+                    results.push(*v);
+                }
+            }
+            StepResult::Done => break,
+            _ => {}
+        }
+    }
+    assert_eq!(results, vec![1, 2, 3]);
+    drop(stmt);
+
+    // Empty array yields no rows
+    let mut stmt = conn
+        .prepare("SELECT value FROM unnest(ARRAY[]::int[])")
+        .unwrap();
+    assert!(matches!(stmt.step().unwrap(), StepResult::Done));
+    drop(stmt);
+
+    // NULL array yields no rows
+    let mut stmt = conn
+        .prepare("SELECT value FROM unnest(NULL::int[])")
+        .unwrap();
+    assert!(matches!(stmt.step().unwrap(), StepResult::Done));
+    drop(stmt);
+
+    // unnest in comma-join with a table
+    conn.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, tags int[])")
+        .unwrap();
+    conn.execute("INSERT INTO items VALUES (1, ARRAY[10, 20])")
+        .unwrap();
+    conn.execute("INSERT INTO items VALUES (2, ARRAY[30])")
+        .unwrap();
+
+    let mut stmt = conn
+        .prepare("SELECT items.id, u.value FROM items, unnest(items.tags) AS u ORDER BY items.id, u.value")
+        .unwrap();
+    let mut results: Vec<String> = Vec::new();
+    loop {
+        match stmt.step().unwrap() {
+            StepResult::Row => {
+                let row = stmt.row().unwrap();
+                let id = row.get_value(0).to_string();
+                let val = row.get_value(1).to_string();
+                results.push(format!("{id},{val}"));
+            }
+            StepResult::Done => break,
+            _ => {}
+        }
+    }
+    assert_eq!(results, vec!["1,10", "1,20", "2,30"]);
+}
+
+#[turso_macros::test(mvcc)]
 fn test_postgres_natural_join(db: TempDatabase) {
     let conn = db.connect_postgres();
 
