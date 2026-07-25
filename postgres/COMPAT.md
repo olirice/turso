@@ -173,7 +173,8 @@ INTEGER. Unknown type names pass through as custom types.
 | LATERAL clause | ❌ Not supported | Keyword accepted but silently ignored |
 | MERGE | ❌ Not supported | |
 | MERGE ... RETURNING | ❌ Not supported | |
-| Multirow VALUES | 🟡 Partial | In INSERT and as standalone VALUES lists; `ORDER BY`/`LIMIT` on a standalone VALUES list is rejected ("ORDER BY clause is not allowed with VALUES clause") |
+| Multirow VALUES | ✅ Supported | In INSERT and as standalone VALUES lists |
+| ORDER BY / LIMIT on a standalone VALUES list | ❌ Not supported | Rejected: "ORDER BY clause is not allowed with VALUES clause" |
 | Non-decimal integer literals | ✅ Supported | `0x`, `0o`, `0b` |
 | ORDER BY NULLS FIRST/LAST | ✅ Supported | Also honored in CREATE INDEX and window ORDER BY |
 | range_agg range type aggregation function | ❌ Not supported | |
