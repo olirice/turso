@@ -6603,6 +6603,35 @@ mod tests {
     }
 
     #[test]
+    fn test_window_order_by_nulls_ordering() {
+        let translator = PostgreSQLTranslator::new();
+        let sql = "SELECT ROW_NUMBER() OVER (ORDER BY salary NULLS LAST) FROM t";
+        let parsed = crate::parse(sql).unwrap();
+        let translated = translator.translate(&parsed).unwrap();
+
+        let ast::Stmt::Select(select) = translated else {
+            panic!("expected Select statement");
+        };
+        let ast::OneSelect::Select { columns, .. } = &select.body.select else {
+            panic!("expected Select body");
+        };
+        let ast::ResultColumn::Expr(expr, _) = &columns[0] else {
+            panic!("expected expression result column");
+        };
+        let ast::Expr::FunctionCall { filter_over, .. } = expr.as_ref() else {
+            panic!("expected function call expression, got {expr:?}");
+        };
+        let Some(ast::Over::Window(window)) = &filter_over.over_clause else {
+            panic!(
+                "expected inline OVER window, got {:?}",
+                filter_over.over_clause
+            );
+        };
+        assert_eq!(window.order_by.len(), 1);
+        assert_eq!(window.order_by[0].nulls, Some(ast::NullsOrder::Last));
+    }
+
+    #[test]
     fn test_named_window_with_order_by() {
         let translator = PostgreSQLTranslator::new();
         let sql =
