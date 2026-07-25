@@ -1964,6 +1964,58 @@ fn test_postgres_similar_to(db: TempDatabase) {
 }
 
 #[turso_macros::test(mvcc)]
+fn test_postgres_order_by_nulls_first_last(db: TempDatabase) {
+    let conn = db.connect_postgres();
+    conn.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, v INTEGER)")
+        .unwrap();
+    conn.execute("INSERT INTO t VALUES (1, 10), (2, NULL), (3, 5), (4, NULL), (5, 20)")
+        .unwrap();
+
+    let run = |sql: &str| -> Vec<Option<i64>> {
+        let mut stmt = conn.prepare(sql).unwrap();
+        let mut results = Vec::new();
+        loop {
+            match stmt.step().unwrap() {
+                StepResult::Row => {
+                    let row = stmt.row().unwrap();
+                    let v = match row.get_value(0) {
+                        Value::Numeric(Numeric::Integer(v)) => Some(*v),
+                        Value::Null => None,
+                        other => panic!("unexpected value: {other:?}"),
+                    };
+                    results.push(v);
+                }
+                StepResult::Done => break,
+                _ => {}
+            }
+        }
+        results
+    };
+
+    // Default ASC ordering treats NULLs as smallest, matching PostgreSQL.
+    assert_eq!(
+        run("SELECT v FROM t ORDER BY v"),
+        vec![None, None, Some(5), Some(10), Some(20)]
+    );
+    assert_eq!(
+        run("SELECT v FROM t ORDER BY v NULLS FIRST"),
+        vec![None, None, Some(5), Some(10), Some(20)]
+    );
+    assert_eq!(
+        run("SELECT v FROM t ORDER BY v NULLS LAST"),
+        vec![Some(5), Some(10), Some(20), None, None]
+    );
+    assert_eq!(
+        run("SELECT v FROM t ORDER BY v DESC NULLS FIRST"),
+        vec![None, None, Some(20), Some(10), Some(5)]
+    );
+    assert_eq!(
+        run("SELECT v FROM t ORDER BY v DESC NULLS LAST"),
+        vec![Some(20), Some(10), Some(5), None, None]
+    );
+}
+
+#[turso_macros::test(mvcc)]
 fn test_postgres_generate_series(db: TempDatabase) {
     let conn = db.connect_postgres();
 

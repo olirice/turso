@@ -175,7 +175,7 @@ INTEGER. Unknown type names pass through as custom types.
 | MERGE ... RETURNING | ❌ Not supported | |
 | Multirow VALUES | ✅ Supported | In INSERT and as standalone VALUES lists |
 | Non-decimal integer literals | ✅ Supported | `0x`, `0o`, `0b` |
-| ORDER BY NULLS FIRST/LAST | ❌ Not supported | Accepted but silently ignored (wrong ordering); honored only in CREATE INDEX |
+| ORDER BY NULLS FIRST/LAST | ✅ Supported | Also honored in CREATE INDEX and window ORDER BY |
 | range_agg range type aggregation function | ❌ Not supported | |
 | Recursive queries | ❌ Not supported | WITH RECURSIVE translates but the engine rejects it ("Recursive CTEs are not yet supported") |
 | regexp_count, regexp_instr, regexp_like | ❌ Not supported | Regex *operators* (`~`, `~*`, SIMILAR TO) work |
