@@ -75,8 +75,9 @@ plus `pg_input_error_info`. Present but always empty: `pg_policy`,
 `pg_publication*`. Catalog introspection functions: `format_type`,
 `pg_get_constraintdef`, `pg_get_indexdef`, `pg_get_userbyid`,
 `pg_*_is_visible`, `pg_encoding_to_char`, `pg_input_is_valid`, `to_char`
-(numeric), `now`/`clock_timestamp`/`transaction_timestamp`/`statement_timestamp`.
-DML against pg_catalog is rejected. `version()`, `pg_typeof`, and
+(numeric), `now`/`clock_timestamp`/`transaction_timestamp`/`statement_timestamp`,
+`version()` (major.minor from the embedded `pg_query`/libpg_query grammar,
+not hardcoded). DML against pg_catalog is rejected. `pg_typeof` and
 `current_schema` are not implemented.
 
 | Feature | Status | Notes |

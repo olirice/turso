@@ -2666,6 +2666,33 @@ fn test_postgres_default_transaction_and_statement_timestamp(db: TempDatabase) {
     assert!(stmt_ts.value.len() >= 19);
 }
 
+#[turso_macros::test(mvcc)]
+fn test_postgres_version(db: TempDatabase) {
+    let conn = db.connect_postgres();
+
+    let mut stmt = conn.prepare("SELECT version()").unwrap();
+    let StepResult::Row = stmt.step().unwrap() else {
+        panic!("expected row");
+    };
+    let row = stmt.row().unwrap();
+    let Value::Text(version) = row.get_value(0) else {
+        panic!("expected text from version()");
+    };
+    // Not a hardcoded literal: the PostgreSQL major.minor comes from the
+    // embedded pg_query/libpg_query grammar, and the trailing version from
+    // this crate's own Cargo package version.
+    assert!(
+        version.value.starts_with("PostgreSQL "),
+        "unexpected version() output: '{}'",
+        version.value
+    );
+    assert!(
+        version.value.contains(env!("CARGO_PKG_VERSION")),
+        "version() should include the Turso package version: '{}'",
+        version.value
+    );
+}
+
 /// Tests that now() and gen_random_uuid() also work in SELECT (not just DEFAULT).
 #[turso_macros::test]
 fn test_postgres_select_now_and_uuid(db: TempDatabase) {
