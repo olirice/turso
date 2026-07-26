@@ -1,0 +1,842 @@
+[
+   {
+      "collation" : false,
+      "create_order" : 2,
+      "create_sql" : "CREATE SCHEMA dump_test;",
+      "icu" : false,
+      "name" : "CREATE SCHEMA dump_test",
+      "regexp" : "(?^m:^CREATE SCHEMA dump_test;)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 3,
+      "create_sql" : "CREATE TABLE dump_test.test_compression (\n\t\t\t\t\t\t   col1 int,\n\t\t\t\t\t\t   col2 text COMPRESSION lz4\n\t\t\t\t\t   );",
+      "icu" : false,
+      "name" : "CREATE TABLE test_compression",
+      "regexp" : "(?^msx:^\n\t\t\tCREATE\\ TABLE\\ dump_test\\.test_compression\\ \\(\\n\n\t\t\t\\s+col1\\ integer\\,\\n\n\t\t\t\\s+col2\\ text\\n\n\t\t\t\\);\\n\n\t\t\t.*\n\t\t\tALTER\\ TABLE\\ ONLY\\ dump_test\\.test_compression\\ ALTER\\ COLUMN\\ col2\\ SET\\ COMPRESSION\\ lz4\\;\\n\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 3,
+      "create_sql" : "CREATE TABLE dump_test.test_table (\n\t\t\t\t\t\t   col1 serial primary key,\n\t\t\t\t\t\t   col2 text COMPRESSION pglz,\n\t\t\t\t\t\t   col3 text,\n\t\t\t\t\t\t   col4 text,\n\t\t\t\t\t\t   CHECK (col1 <= 1000)\n\t\t\t\t\t   ) WITH (autovacuum_enabled = false, fillfactor=80);\n\t\t\t\t\t   COMMENT ON CONSTRAINT test_table_col1_check\n\t\t\t\t\t\t ON dump_test.test_table IS 'bounds check';",
+      "icu" : false,
+      "name" : "CREATE TABLE test_table",
+      "regexp" : "(?^mx:^\n\t\t\tCREATE\\ TABLE\\ dump_test\\.test_table\\ \\(\\n\n\t\t\t\\s+col1\\ integer\\ NOT\\ NULL\\,\\n\n\t\t\t\\s+col2\\ text\\,\\n\n\t\t\t\\s+col3\\ text\\,\\n\n\t\t\t\\s+col4\\ text\\,\\n\n\t\t\t\\s+CONSTRAINT\\ test_table_col1_check\\ CHECK\\ \\(\\(col1\\ \\<\\=\\ 1000\\)\\)\\n\n\t\t\t\\)\\n\n\t\t\tWITH\\ \\(autovacuum_enabled\\=\\'false\\'\\,\\ fillfactor\\=\\'80\\'\\)\\;\\n(.|\\n)*\n\t\t\tCOMMENT\\ ON\\ CONSTRAINT\\ test_table_col1_check\\ ON\\ dump_test\\.test_table\\ IS\\ \\'bounds\\ check\\'\\;\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 3,
+      "create_sql" : "CREATE TABLE dump_test.test_table_generated (\n\t\t\t\t\t\t   col1 int primary key,\n\t\t\t\t\t\t   col2 int generated always as (col1 * 2) stored\n\t\t\t\t\t   );",
+      "icu" : false,
+      "name" : "CREATE TABLE test_table_generated",
+      "regexp" : "(?^msx:^\n\t\t\tCREATE\\ TABLE\\ dump_test\\.test_table_generated\\ \\(\\n\n\t\t\t\\s+col1\\ integer\\ NOT\\ NULL\\,\\n\n\t\t\t\\s+col2\\ integer\\ GENERATED\\ ALWAYS\\ AS\\ \\(\\(col1\\ \\*\\ 2\\)\\)\\ STORED\\n\n\t\t\t\\);\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 3,
+      "create_sql" : "CREATE TABLE dump_test.test_table_identity (\n\t\t\t\t\t\t   col1 int generated always as identity primary key,\n\t\t\t\t\t\t   col2 text\n\t\t\t\t\t   );",
+      "icu" : false,
+      "name" : "CREATE TABLE test_table_identity",
+      "regexp" : "(?^msx:^\n\t\t\tCREATE\\ TABLE\\ dump_test\\.test_table_identity\\ \\(\\n\n\t\t\t\\s+col1\\ integer\\ NOT\\ NULL\\,\\n\n\t\t\t\\s+col2\\ text\\n\n\t\t\t\\);\n\t\t\t.*\n\t\t\tALTER\\ TABLE\\ dump_test\\.test_table_identity\\ ALTER\\ COLUMN\\ col1\\ ADD\\ GENERATED\\ ALWAYS\\ AS\\ IDENTITY\\ \\(\\n\n\t\t\t\\s+SEQUENCE\\ NAME\\ dump_test\\.test_table_identity_col1_seq\\n\n\t\t\t\\s+START\\ WITH\\ 1\\n\n\t\t\t\\s+INCREMENT\\ BY\\ 1\\n\n\t\t\t\\s+NO\\ MINVALUE\\n\n\t\t\t\\s+NO\\ MAXVALUE\\n\n\t\t\t\\s+CACHE\\ 1\\n\n\t\t\t\\);\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 4,
+      "create_sql" : "CREATE TABLE dump_test.test_table_generated_child1 ()\n\t\t\t\t\t\t INHERITS (dump_test.test_table_generated);",
+      "icu" : false,
+      "name" : "CREATE TABLE test_table_generated_child1 (without local columns)",
+      "regexp" : "(?^msx:^\n\t\t\tCREATE\\ TABLE\\ dump_test\\.test_table_generated_child1\\ \\(\\n\n\t\t\t\\)\\n\n\t\t\tINHERITS\\ \\(dump_test\\.test_table_generated\\)\\;\\n\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 4,
+      "create_sql" : "CREATE TABLE dump_test.test_table_generated_child2 (\n\t\t\t\t\t\t   col1 int,\n\t\t\t\t\t\t   col2 int\n\t\t\t\t\t\t ) INHERITS (dump_test.test_table_generated);",
+      "icu" : false,
+      "name" : "CREATE TABLE test_table_generated_child2 (with local columns)",
+      "regexp" : "(?^msx:^\n\t\t\tCREATE\\ TABLE\\ dump_test\\.test_table_generated_child2\\ \\(\\n\n\t\t\t\\s+col1\\ integer\\,\\n\n\t\t\t\\s+col2\\ integer\\n\n\t\t\t\\)\\n\n\t\t\tINHERITS\\ \\(dump_test\\.test_table_generated\\)\\;\\n\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 5,
+      "create_sql" : "GRANT SELECT ON TABLE dump_test.test_table\n\t\t\t\t\t\t   TO regress_dump_test_role;",
+      "icu" : false,
+      "name" : "GRANT SELECT ON TABLE test_table",
+      "regexp" : "(?^m:^GRANT\\ SELECT\\ ON\\ TABLE\\ dump_test\\.test_table\\ TO\\ regress_dump_test_role\\;)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 6,
+      "create_sql" : "CREATE TABLE dump_test.test_fourth_table (\n\t\t\t\t\t   );",
+      "icu" : false,
+      "name" : "CREATE TABLE test_fourth_table_zero_col",
+      "regexp" : "(?^mx:^\n\t\t\tCREATE\\ TABLE\\ dump_test\\.test_fourth_table\\ \\(\n\t\t\t\\n\\);\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 6,
+      "create_sql" : "CREATE TABLE dump_test.test_second_table (\n\t\t\t\t\t\t   col1 int,\n\t\t\t\t\t\t   col2 text\n\t\t\t\t\t   );",
+      "icu" : false,
+      "name" : "CREATE TABLE test_second_table",
+      "regexp" : "(?^mx:^\n\t\t\tCREATE\\ TABLE\\ dump_test\\.test_second_table\\ \\(\n\t\t\t\\n\\s+col1\\ integer\\,\n\t\t\t\\n\\s+col2\\ text\n\t\t\t\\n\\);\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 6,
+      "create_sql" : "CREATE TABLE dump_test.test_seventh_table (\n\t\t\t\t\t\t   col1 int,\n\t\t\t\t\t\t   col2 text,\n\t\t\t\t\t\t   col3 bytea\n\t\t\t\t\t   );",
+      "icu" : false,
+      "name" : "CREATE TABLE test_seventh_table",
+      "regexp" : "(?^mx:^\n\t\t\tCREATE\\ TABLE\\ dump_test\\.test_seventh_table\\ \\(\n\t\t\t\\n\\s+col1\\ integer\\,\n\t\t\t\\n\\s+col2\\ text\\,\n\t\t\t\\n\\s+col3\\ bytea\n\t\t\t\\n\\);\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 6,
+      "create_sql" : "CREATE TABLE dump_test.test_sixth_table (\n\t\t\t\t\t\t   col1 int,\n\t\t\t\t\t\t   col2 text,\n\t\t\t\t\t\t   col3 bytea\n\t\t\t\t\t   );",
+      "icu" : false,
+      "name" : "CREATE TABLE test_sixth_table",
+      "regexp" : "(?^mx:^\n\t\t\tCREATE\\ TABLE\\ dump_test\\.test_sixth_table\\ \\(\n\t\t\t\\n\\s+col1\\ integer\\,\n\t\t\t\\n\\s+col2\\ text\\,\n\t\t\t\\n\\s+col3\\ bytea\n\t\t\t\\n\\);\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 6,
+      "create_sql" : "CREATE TABLE dump_test.test_third_table (\n\t\t\t\t\t\tf1 int, junk int,\n\t\t\t\t\t\tg1 int generated always as (f1 * 2) stored,\n\t\t\t\t\t\t\"F3\" int,\n\t\t\t\t\t\tg2 int generated always as (\"F3\" * 3) stored\n\t\t\t\t\t);\n\t\t\t\t\tALTER TABLE dump_test.test_third_table DROP COLUMN junk;",
+      "icu" : false,
+      "name" : "CREATE TABLE test_third_table_generated_cols",
+      "regexp" : "(?^mx:^\n\t\t\tCREATE\\ TABLE\\ dump_test\\.test_third_table\\ \\(\\n\n\t\t\t\\s+f1\\ integer\\,\\n\n\t\t\t\\s+g1\\ integer\\ GENERATED\\ ALWAYS\\ AS\\ \\(\\(f1\\ \\*\\ 2\\)\\)\\ STORED\\,\\n\n\t\t\t\\s+\\\"F3\\\"\\ integer\\,\\n\n\t\t\t\\s+g2\\ integer\\ GENERATED\\ ALWAYS\\ AS\\ \\(\\(\\\"F3\\\"\\ \\*\\ 3\\)\\)\\ STORED\\n\n\t\t\t\\);\\n\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 8,
+      "create_sql" : "GRANT INSERT (col1) ON TABLE dump_test.test_second_table\n\t\t\t\t\t\t   TO regress_dump_test_role;",
+      "icu" : false,
+      "name" : "GRANT INSERT(col1) ON TABLE test_second_table",
+      "regexp" : "(?^mx:^\n\t\t\tGRANT\\ INSERT\\(col1\\)\\ ON\\ TABLE\\ dump_test\\.test_second_table\\ TO\\ regress_dump_test_role\\;\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 9,
+      "create_sql" : "CREATE SCHEMA dump_test_second_schema;",
+      "icu" : false,
+      "name" : "CREATE SCHEMA dump_test_second_schema",
+      "regexp" : "(?^m:^CREATE SCHEMA dump_test_second_schema;)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 10,
+      "create_sql" : "GRANT USAGE ON SCHEMA dump_test_second_schema\n\t\t\t\t\t\t   TO regress_dump_test_role;",
+      "icu" : false,
+      "name" : "GRANT USAGE ON SCHEMA dump_test_second_schema",
+      "regexp" : "(?^mx:^\n\t\t\tGRANT\\ USAGE\\ ON\\ SCHEMA\\ dump_test_second_schema\\ TO\\ regress_dump_test_role\\;\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 11,
+      "create_sql" : "CREATE ACCESS METHOD regress_table_am TYPE TABLE HANDLER heap_tableam_handler;",
+      "icu" : false,
+      "name" : "CREATE ACCESS METHOD regress_test_table_am",
+      "regexp" : "(?^mx:^\n\t\t\tCREATE\\ ACCESS\\ METHOD\\ regress_table_am\\ TYPE\\ TABLE\\ HANDLER\\ heap_tableam_handler\\;\n\t\t\t\\n)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 12,
+      "create_sql" : "\n\t\t\tCREATE TABLE dump_test.regress_pg_dump_table_am_0() USING heap;\n\t\t\tCREATE TABLE dump_test.regress_pg_dump_table_am_1 (col1 int) USING regress_table_am;\n\t\t\tCREATE TABLE dump_test.regress_pg_dump_table_am_2() USING heap;",
+      "icu" : false,
+      "name" : "CREATE TABLE regress_pg_dump_table_am",
+      "regexp" : "(?^mx:^\n\t\t\tSET\\ default_table_access_method\\ \\=\\ regress_table_am\\;\n\t\t\t(\\n(?!SET[^;]+;)[^\\n]*)*\n\t\t\t\\nCREATE\\ TABLE\\ dump_test\\.regress_pg_dump_table_am_1\\ \\(\n\t\t\t\\n\\s+col1\\ integer\n\t\t\t\\n\\);)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 13,
+      "create_sql" : "\n\t\t\tCREATE MATERIALIZED VIEW dump_test.regress_pg_dump_matview_am_0 USING heap AS SELECT 1;\n\t\t\tCREATE MATERIALIZED VIEW dump_test.regress_pg_dump_matview_am_1\n\t\t\t\tUSING regress_table_am AS SELECT count(*) FROM pg_class;\n\t\t\tCREATE MATERIALIZED VIEW dump_test.regress_pg_dump_matview_am_2 USING heap AS SELECT 1;",
+      "icu" : false,
+      "name" : "CREATE MATERIALIZED VIEW regress_pg_dump_matview_am",
+      "regexp" : "(?^mx:^\n\t\t\tSET\\ default_table_access_method\\ \\=\\ regress_table_am\\;\n\t\t\t(\\n(?!SET[^;]+;)[^\\n]*)*\n\t\t\tCREATE\\ MATERIALIZED\\ VIEW\\ dump_test\\.regress_pg_dump_matview_am_1\\ AS\n\t\t\t\\n\\s+SELECT\\ count\\(\\*\\)\\ AS\\ count\n\t\t\t\\n\\s+FROM\\ pg_class\n\t\t\t\\n\\s+WITH\\ NO\\ DATA\\;\\n)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 15,
+      "create_sql" : "ALTER SCHEMA public OWNER TO \"regress_quoted  \\\"\" role\";",
+      "icu" : false,
+      "name" : "ALTER SCHEMA public OWNER TO",
+      "regexp" : "(?^m:^ALTER SCHEMA public OWNER TO .+;)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 15,
+      "create_sql" : "REVOKE EXECUTE ON FUNCTION pg_sleep(float8)\n\t\t\t\t\t\t   FROM public;",
+      "icu" : false,
+      "name" : "REVOKE EXECUTE ON FUNCTION pg_sleep() FROM public",
+      "regexp" : "(?^mx:^\n\t\t\tREVOKE\\ ALL\\ ON\\ FUNCTION\\ pg_catalog\\.pg_sleep\\(double\\ precision\\)\\ FROM\\ PUBLIC\\;\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 16,
+      "create_sql" : "GRANT EXECUTE ON FUNCTION pg_sleep(float8)\n\t\t\t\t\t\t   TO regress_dump_test_role;",
+      "icu" : false,
+      "name" : "GRANT EXECUTE ON FUNCTION pg_sleep() TO regress_dump_test_role",
+      "regexp" : "(?^mx:^\n\t\t\tGRANT\\ ALL\\ ON\\ FUNCTION\\ pg_catalog\\.pg_sleep\\(double\\ precision\\)\\ TO\\ regress_dump_test_role\\;\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 16,
+      "create_sql" : "REVOKE ALL ON SCHEMA public FROM \"regress_quoted  \\\"\" role\";",
+      "icu" : false,
+      "name" : "REVOKE ALL ON SCHEMA public",
+      "regexp" : "(?^m:^REVOKE ALL ON SCHEMA public FROM \"regress_quoted  \\\\\"\" role\";)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 16,
+      "create_sql" : "REVOKE USAGE ON LANGUAGE plpgsql FROM public;",
+      "icu" : false,
+      "name" : "REVOKE USAGE ON LANGUAGE plpgsql FROM public",
+      "regexp" : "(?^m:^REVOKE ALL ON LANGUAGE plpgsql FROM PUBLIC;)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 17,
+      "create_sql" : "CREATE FUNCTION dump_test.pltestlang_call_handler()\n\t\t\t\t\t   RETURNS LANGUAGE_HANDLER AS '$libdir/plpgsql',\n\t\t\t\t\t   'plpgsql_call_handler' LANGUAGE C;",
+      "icu" : false,
+      "name" : "CREATE FUNCTION dump_test.pltestlang_call_handler",
+      "regexp" : "(?^mx:^\n\t\t\tCREATE\\ FUNCTION\\ dump_test\\.pltestlang_call_handler\\(\\)\\ \n\t\t\tRETURNS\\ language_handler\n\t\t\t\\n\\s+LANGUAGE\\ c\n\t\t\t\\n\\s+AS\\ \\'\\$\n\t\t\tlibdir\\/plpgsql\\'\\,\\ \\'plpgsql_call_handler\\'\\;\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 18,
+      "create_sql" : "CREATE LANGUAGE pltestlang\n\t\t\t\t\t   HANDLER dump_test.pltestlang_call_handler;",
+      "icu" : false,
+      "name" : "CREATE LANGUAGE pltestlang",
+      "regexp" : "(?^mx:^\n\t\t\tCREATE\\ PROCEDURAL\\ LANGUAGE\\ pltestlang\\ \n\t\t\tHANDLER\\ dump_test\\.pltestlang_call_handler\\;\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 20,
+      "create_sql" : "CREATE MATERIALIZED VIEW dump_test.matview (col1) AS\n\t\t\t\t\t   SELECT col1 FROM dump_test.test_table;",
+      "icu" : false,
+      "name" : "CREATE MATERIALIZED VIEW matview",
+      "regexp" : "(?^mx:^\n\t\t\tCREATE\\ MATERIALIZED\\ VIEW\\ dump_test\\.matview\\ AS\n\t\t\t\\n\\s+SELECT\\ col1\n\t\t\t\\n\\s+FROM\\ dump_test\\.test_table\n\t\t\t\\n\\s+WITH\\ NO\\ DATA\\;\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 20,
+      "create_sql" : "CREATE MATERIALIZED VIEW\n\t\t\t\t\t\t   dump_test.matview_compression (col2) AS\n\t\t\t\t\t\t   SELECT col2 FROM dump_test.test_table;\n\t\t\t\t\t\t   ALTER MATERIALIZED VIEW dump_test.matview_compression\n\t\t\t\t\t\t   ALTER COLUMN col2 SET COMPRESSION lz4;",
+      "icu" : false,
+      "name" : "CREATE MATERIALIZED VIEW matview_compression",
+      "regexp" : "(?^msx:^\n\t\t\tCREATE\\ MATERIALIZED\\ VIEW\\ dump_test\\.matview_compression\\ AS\n\t\t\t\\n\\s+SELECT\\ col2\n\t\t\t\\n\\s+FROM\\ dump_test\\.test_table\n\t\t\t\\n\\s+WITH\\ NO\\ DATA\\;\n\t\t\t.*\n\t\t\tALTER\\ TABLE\\ ONLY\\ dump_test\\.matview_compression\\ ALTER\\ COLUMN\\ col2\\ SET\\ COMPRESSION\\ lz4\\;\\n\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 21,
+      "create_sql" : "CREATE MATERIALIZED VIEW\n\t\t\t\t\t\t   dump_test.matview_second (col1) AS\n\t\t\t\t\t\t   SELECT * FROM dump_test.matview;",
+      "icu" : false,
+      "name" : "CREATE MATERIALIZED VIEW matview_second",
+      "regexp" : "(?^mx:^\n\t\t\tCREATE\\ MATERIALIZED\\ VIEW\\ dump_test\\.matview_second\\ AS\n\t\t\t\\n\\s+SELECT\\ col1\n\t\t\t\\n\\s+FROM\\ dump_test\\.matview\n\t\t\t\\n\\s+WITH\\ NO\\ DATA\\;\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 21,
+      "create_sql" : "CREATE TABLE dump_test.fk_reference_test_table (\n\t\t\t\t\t\t   col1 int primary key references dump_test.test_table\n\t\t\t\t\t   );",
+      "icu" : false,
+      "name" : "CREATE TABLE fk_reference_test_table",
+      "regexp" : "(?^mx:^\n\t\t\tCREATE\\ TABLE\\ dump_test\\.fk_reference_test_table\\ \\(\n\t\t\t\\n\\s+col1\\ integer\\ NOT\\ NULL\n\t\t\t\\n\\);\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 25,
+      "create_sql" : "CREATE AGGREGATE dump_test.newavg (\n\t\t\t\t\t\t  sfunc = int4_avg_accum,\n\t\t\t\t\t\t  basetype = int4,\n\t\t\t\t\t\t  stype = _int8,\n\t\t\t\t\t\t  finalfunc = int8_avg,\n\t\t\t\t\t\t  finalfunc_modify = shareable,\n\t\t\t\t\t\t  initcond1 = '{0,0}'\n\t\t\t\t\t   );",
+      "icu" : false,
+      "name" : "CREATE AGGREGATE dump_test.newavg",
+      "regexp" : "(?^mx:^\n\t\t\tCREATE\\ AGGREGATE\\ dump_test\\.newavg\\(integer\\)\\ \\(\n\t\t\t\\n\\s+SFUNC\\ \\=\\ int4_avg_accum\\,\n\t\t\t\\n\\s+STYPE\\ \\=\\ bigint\\[\\]\\,\n\t\t\t\\n\\s+INITCOND\\ \\=\\ \\'\\{0\\,0\\}\\'\\,\n\t\t\t\\n\\s+FINALFUNC\\ \\=\\ int8_avg\\,\n\t\t\t\\n\\s+FINALFUNC_MODIFY\\ \\=\\ SHAREABLE\n\t\t\t\\n\\);)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 29,
+      "create_sql" : "CREATE DOMAIN dump_test.us_postal_code AS TEXT\n\t\t               COLLATE \"C\"\n\t\t\t\t\t   DEFAULT '10014'\n\t\t\t\t\t   CHECK(VALUE ~ '^\\d{5}$' OR\n\t\t\t\t\t\t\t VALUE ~ '^\\d{5}-\\d{4}$');\n\t\t\t\t\t   COMMENT ON CONSTRAINT us_postal_code_check\n\t\t\t\t\t\t ON DOMAIN dump_test.us_postal_code IS 'check it';",
+      "icu" : false,
+      "name" : "CREATE DOMAIN dump_test.us_postal_code",
+      "regexp" : "(?^mx:^\n\t\t\tCREATE\\ DOMAIN\\ dump_test\\.us_postal_code\\ AS\\ text\\ COLLATE\\ pg_catalog\\.\\\"C\\\"\\ DEFAULT\\ \\'10014\\'\\:\\:text\\n\\s+\n\t\t\tCONSTRAINT\\ us_postal_code_check\\ CHECK\\ \n\t\t\t\\(\\(\\(VALUE\\ \\~\\ \\'\\^\\\\d\\{5\\}\n\t\t\t\\$\\'\\:\\:text\\)\\ OR\\ \\(VALUE\\ \\~\\ \\'\\^\\\\d\\{5\\}\\-\\\\d\\{4\\}\\$\n\t\t\t\\'\\:\\:text\\)\\)\\)\\;(.|\\n)*\n\t\t\tCOMMENT\\ ON\\ CONSTRAINT\\ us_postal_code_check\\ ON\\ DOMAIN\\ dump_test\\.us_postal_code\\ IS\\ \\'check\\ it\\'\\;\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 30,
+      "create_sql" : "CREATE FUNCTION dump_test.trigger_func()\n\t\t\t\t\t   RETURNS trigger LANGUAGE plpgsql\n\t\t\t\t\t   AS $$ BEGIN RETURN NULL; END;$$;",
+      "icu" : false,
+      "name" : "CREATE FUNCTION dump_test.trigger_func",
+      "regexp" : "(?^mx:^\n\t\t\tCREATE\\ FUNCTION\\ dump_test\\.trigger_func\\(\\)\\ RETURNS\\ trigger\n\t\t\t\\n\\s+LANGUAGE\\ plpgsql\n\t\t\t\\n\\s+AS\\ \\$\\$\n\t\t\t\\ BEGIN\\ RETURN\\ NULL\\;\\ END\\;\n\t\t\t\\$\\$;)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 32,
+      "create_sql" : "CREATE FUNCTION dump_test.event_trigger_func()\n\t\t\t\t\t   RETURNS event_trigger LANGUAGE plpgsql\n\t\t\t\t\t   AS $$ BEGIN RETURN; END;$$;",
+      "icu" : false,
+      "name" : "CREATE FUNCTION dump_test.event_trigger_func",
+      "regexp" : "(?^mx:^\n\t\t\tCREATE\\ FUNCTION\\ dump_test\\.event_trigger_func\\(\\)\\ RETURNS\\ event_trigger\n\t\t\t\\n\\s+LANGUAGE\\ plpgsql\n\t\t\t\\n\\s+AS\\ \\$\\$\n\t\t\t\\ BEGIN\\ RETURN\\;\\ END\\;\n\t\t\t\\$\\$;)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 34,
+      "create_sql" : "CREATE TRANSFORM FOR int LANGUAGE SQL (FROM SQL WITH FUNCTION prsd_lextype(internal), TO SQL WITH FUNCTION int4recv(internal));",
+      "icu" : false,
+      "name" : "CREATE TRANSFORM FOR int",
+      "regexp" : "(?^m:CREATE TRANSFORM FOR integer LANGUAGE sql \\(FROM SQL WITH FUNCTION pg_catalog\\.prsd_lextype\\(internal\\), TO SQL WITH FUNCTION pg_catalog\\.int4recv\\(internal\\)\\);)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 35,
+      "create_sql" : "CREATE FOREIGN DATA WRAPPER dummy;",
+      "icu" : false,
+      "name" : "CREATE FOREIGN DATA WRAPPER dummy",
+      "regexp" : "(?^m:CREATE FOREIGN DATA WRAPPER dummy;)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 36,
+      "create_sql" : "COMMENT ON COLUMN dump_test.test_table.col1\n\t\t\t\t\t   IS 'comment on column';",
+      "icu" : false,
+      "name" : "COMMENT ON COLUMN dump_test.test_table.col1",
+      "regexp" : "(?^mx:^\n\t\t\tCOMMENT\\ ON\\ COLUMN\\ dump_test\\.test_table\\.col1\\ IS\\ \\'comment\\ on\\ column\\'\\;\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 36,
+      "create_sql" : "COMMENT ON TABLE dump_test.test_table\n\t\t\t\t\t   IS 'comment on table';",
+      "icu" : false,
+      "name" : "COMMENT ON TABLE dump_test.test_table",
+      "regexp" : "(?^m:^COMMENT\\ ON\\ TABLE\\ dump_test\\.test_table\\ IS\\ \\'comment\\ on\\ table\\'\\;)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 36,
+      "create_sql" : "CREATE SERVER s1 FOREIGN DATA WRAPPER dummy;",
+      "icu" : false,
+      "name" : "CREATE SERVER s1 FOREIGN DATA WRAPPER dummy",
+      "regexp" : "(?^m:CREATE SERVER s1 FOREIGN DATA WRAPPER dummy;)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 37,
+      "create_sql" : "CREATE TYPE dump_test.planets\n\t\t\t\t\t   AS ENUM ( 'venus', 'earth', 'mars' );",
+      "icu" : false,
+      "name" : "CREATE TYPE dump_test.planets AS ENUM",
+      "regexp" : "(?^mx:^\n\t\t\tCREATE\\ TYPE\\ dump_test\\.planets\\ AS\\ ENUM\\ \\(\n\t\t\t\\n\\s+'venus',\n\t\t\t\\n\\s+'earth',\n\t\t\t\\n\\s+'mars'\n\t\t\t\\n\\);)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 38,
+      "create_sql" : "CREATE TYPE dump_test.textrange\n\t\t\t\t\t   AS RANGE (subtype=text, collation=\"C\");",
+      "icu" : false,
+      "name" : "CREATE TYPE dump_test.textrange AS RANGE",
+      "regexp" : "(?^mx:^\n\t\t\tCREATE\\ TYPE\\ dump_test\\.textrange\\ AS\\ RANGE\\ \\(\n\t\t\t\\n\\s+subtype\\ \\=\\ text\\,\n\t\t\t\\n\\s+multirange_type_name\\ \\=\\ dump_test\\.textmultirange\\,\n\t\t\t\\n\\s+collation\\ \\=\\ pg_catalog\\.\\\"C\\\"\n\t\t\t\\n\\);)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 39,
+      "create_sql" : "CREATE TYPE dump_test.int42;",
+      "icu" : false,
+      "name" : "CREATE TYPE dump_test.int42",
+      "regexp" : "(?^m:^CREATE\\ TYPE\\ dump_test\\.int42\\;)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 39,
+      "create_sql" : "CREATE TYPE dump_test.undefined;",
+      "icu" : false,
+      "name" : "CREATE TYPE dump_test.undefined",
+      "regexp" : "(?^m:^CREATE\\ TYPE\\ dump_test\\.undefined\\;)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 40,
+      "create_sql" : "CREATE FUNCTION dump_test.int42_in(cstring)\n\t\t\t\t\t   RETURNS dump_test.int42 AS 'int4in'\n\t\t\t\t\t   LANGUAGE internal STRICT IMMUTABLE;",
+      "icu" : false,
+      "name" : "CREATE FUNCTION dump_test.int42_in",
+      "regexp" : "(?^mx:^\n\t\t\tCREATE\\ FUNCTION\\ dump_test\\.int42_in\\(cstring\\)\\ RETURNS\\ dump_test\\.int42\n\t\t\t\\n\\s+LANGUAGE\\ internal\\ IMMUTABLE\\ STRICT\n\t\t\t\\n\\s+AS\\ \\$\\$int4in\\$\\$;\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 41,
+      "create_sql" : "CREATE FUNCTION dump_test.func_with_support() RETURNS int LANGUAGE sql AS $$ SELECT 1 $$ SUPPORT varchar_support;",
+      "icu" : false,
+      "name" : "CREATE FUNCTION ... SUPPORT",
+      "regexp" : "(?^mx:^\n\t\t\tCREATE\\ FUNCTION\\ dump_test\\.func_with_support\\(\\)\\ RETURNS\\ integer\n\t\t\t\\n\\s+LANGUAGE\\ sql\\ SUPPORT\\ varchar_support\n\t\t\t\\n\\s+AS\\ \\$\\$\\ SELECT\\ 1\\ \\$\\$;\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 41,
+      "create_sql" : "CREATE FUNCTION dump_test.int42_out(dump_test.int42)\n\t\t\t\t\t   RETURNS cstring AS 'int4out'\n\t\t\t\t\t   LANGUAGE internal STRICT IMMUTABLE;",
+      "icu" : false,
+      "name" : "CREATE FUNCTION dump_test.int42_out",
+      "regexp" : "(?^mx:^\n\t\t\tCREATE\\ FUNCTION\\ dump_test\\.int42_out\\(dump_test\\.int42\\)\\ RETURNS\\ cstring\n\t\t\t\\n\\s+LANGUAGE\\ internal\\ IMMUTABLE\\ STRICT\n\t\t\t\\n\\s+AS\\ \\$\\$int4out\\$\\$;\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 41,
+      "create_sql" : "CREATE PROCEDURE dump_test.ptest1(a int)\n\t\t\t\t\t   LANGUAGE SQL AS $$ INSERT INTO dump_test.test_table (col1) VALUES (a) $$;",
+      "icu" : false,
+      "name" : "CREATE PROCEDURE dump_test.ptest1",
+      "regexp" : "(?^mx:^\n\t\t\tCREATE\\ PROCEDURE\\ dump_test\\.ptest1\\(IN\\ a\\ integer\\)\n\t\t\t\\n\\s+LANGUAGE\\ sql\n\t\t\t\\n\\s+AS\\ \\$\\$\\ INSERT\\ INTO\\ dump_test\\.test_table\\ \\(col1\\)\\ VALUES\\ \\(a\\)\\ \\$\\$;\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 42,
+      "create_sql" : "CREATE TYPE dump_test.int42 (\n\t\t\t\t\t\t   internallength = 4,\n\t\t\t\t\t\t   input = dump_test.int42_in,\n\t\t\t\t\t\t   output = dump_test.int42_out,\n\t\t\t\t\t\t   alignment = int4,\n\t\t\t\t\t\t   default = 42,\n\t\t\t\t\t\t   passedbyvalue);",
+      "icu" : false,
+      "name" : "CREATE TYPE dump_test.int42 populated",
+      "regexp" : "(?^mx:^\n\t\t\tCREATE\\ TYPE\\ dump_test\\.int42\\ \\(\n\t\t\t\\n\\s+INTERNALLENGTH\\ \\=\\ 4\\,\n\t\t\t\\n\\s+INPUT\\ \\=\\ dump_test\\.int42_in\\,\n\t\t\t\\n\\s+OUTPUT\\ \\=\\ dump_test\\.int42_out\\,\n\t\t\t\\n\\s+DEFAULT\\ \\=\\ \\'42\\'\\,\n\t\t\t\\n\\s+ALIGNMENT\\ \\=\\ int4\\,\n\t\t\t\\n\\s+STORAGE\\ \\=\\ plain\\,\n\t\t\t\\n\\s+PASSEDBYVALUE\\n\\);\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 43,
+      "create_sql" : "CREATE TYPE dump_test.composite AS (\n\t\t\t\t\t\t   f1 int,\n\t\t\t\t\t\t   f2 dump_test.int42\n\t\t\t\t\t   );",
+      "icu" : false,
+      "name" : "CREATE TYPE dump_test.composite",
+      "regexp" : "(?^mx:^\n\t\t\tCREATE\\ TYPE\\ dump_test\\.composite\\ AS\\ \\(\n\t\t\t\\n\\s+f1\\ integer\\,\n\t\t\t\\n\\s+f2\\ dump_test\\.int42\n\t\t\t\\n\\);\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 44,
+      "create_sql" : "COMMENT ON COLUMN dump_test.composite.f1\n\t\t\t\t\t   IS 'comment on column of type';",
+      "icu" : false,
+      "name" : "COMMENT ON COLUMN dump_test.composite.f1",
+      "regexp" : "(?^mx:^\n\t\t\tCOMMENT\\ ON\\ COLUMN\\ dump_test\\.composite\\.f1\\ IS\\ \\'comment\\ on\\ column\\ of\\ type\\'\\;\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 45,
+      "create_sql" : "REVOKE SELECT ON TABLE pg_proc FROM public;",
+      "icu" : false,
+      "name" : "REVOKE SELECT ON TABLE pg_proc FROM public",
+      "regexp" : "(?^m:^REVOKE\\ SELECT\\ ON\\ TABLE\\ pg_catalog\\.pg_proc\\ FROM\\ PUBLIC\\;)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 46,
+      "create_sql" : "GRANT SELECT (\n\t\t\t\t\t\t   tableoid,\n\t\t\t\t\t\t   oid,\n\t\t\t\t\t\t   proname,\n\t\t\t\t\t\t   pronamespace,\n\t\t\t\t\t\t   proowner,\n\t\t\t\t\t\t   prolang,\n\t\t\t\t\t\t   procost,\n\t\t\t\t\t\t   prorows,\n\t\t\t\t\t\t   provariadic,\n\t\t\t\t\t\t   prosupport,\n\t\t\t\t\t\t   prokind,\n\t\t\t\t\t\t   prosecdef,\n\t\t\t\t\t\t   proleakproof,\n\t\t\t\t\t\t   proisstrict,\n\t\t\t\t\t\t   proretset,\n\t\t\t\t\t\t   provolatile,\n\t\t\t\t\t\t   proparallel,\n\t\t\t\t\t\t   pronargs,\n\t\t\t\t\t\t   pronargdefaults,\n\t\t\t\t\t\t   prorettype,\n\t\t\t\t\t\t   proargtypes,\n\t\t\t\t\t\t   proallargtypes,\n\t\t\t\t\t\t   proargmodes,\n\t\t\t\t\t\t   proargnames,\n\t\t\t\t\t\t   proargdefaults,\n\t\t\t\t\t\t   protrftypes,\n\t\t\t\t\t\t   prosrc,\n\t\t\t\t\t\t   probin,\n\t\t\t\t\t\t   proconfig,\n\t\t\t\t\t\t   proacl\n\t\t\t\t\t\t) ON TABLE pg_proc TO public;",
+      "icu" : false,
+      "name" : "GRANT SELECT (proname ...) ON TABLE pg_proc TO public",
+      "regexp" : "(?^msx:\n\t\tGRANT\\ SELECT\\(tableoid\\)\\ ON\\ TABLE\\ pg_catalog\\.pg_proc\\ TO\\ PUBLIC\\;\\n.*\n\t\tGRANT\\ SELECT\\(oid\\)\\ ON\\ TABLE\\ pg_catalog\\.pg_proc\\ TO\\ PUBLIC\\;\\n.*\n\t\tGRANT\\ SELECT\\(proname\\)\\ ON\\ TABLE\\ pg_catalog\\.pg_proc\\ TO\\ PUBLIC\\;\\n.*\n\t\tGRANT\\ SELECT\\(pronamespace\\)\\ ON\\ TABLE\\ pg_catalog\\.pg_proc\\ TO\\ PUBLIC\\;\\n.*\n\t\tGRANT\\ SELECT\\(proowner\\)\\ ON\\ TABLE\\ pg_catalog\\.pg_proc\\ TO\\ PUBLIC\\;\\n.*\n\t\tGRANT\\ SELECT\\(prolang\\)\\ ON\\ TABLE\\ pg_catalog\\.pg_proc\\ TO\\ PUBLIC\\;\\n.*\n\t\tGRANT\\ SELECT\\(procost\\)\\ ON\\ TABLE\\ pg_catalog\\.pg_proc\\ TO\\ PUBLIC\\;\\n.*\n\t\tGRANT\\ SELECT\\(prorows\\)\\ ON\\ TABLE\\ pg_catalog\\.pg_proc\\ TO\\ PUBLIC\\;\\n.*\n\t\tGRANT\\ SELECT\\(provariadic\\)\\ ON\\ TABLE\\ pg_catalog\\.pg_proc\\ TO\\ PUBLIC\\;\\n.*\n\t\tGRANT\\ SELECT\\(prosupport\\)\\ ON\\ TABLE\\ pg_catalog\\.pg_proc\\ TO\\ PUBLIC\\;\\n.*\n\t\tGRANT\\ SELECT\\(prokind\\)\\ ON\\ TABLE\\ pg_catalog\\.pg_proc\\ TO\\ PUBLIC\\;\\n.*\n\t\tGRANT\\ SELECT\\(prosecdef\\)\\ ON\\ TABLE\\ pg_catalog\\.pg_proc\\ TO\\ PUBLIC\\;\\n.*\n\t\tGRANT\\ SELECT\\(proleakproof\\)\\ ON\\ TABLE\\ pg_catalog\\.pg_proc\\ TO\\ PUBLIC\\;\\n.*\n\t\tGRANT\\ SELECT\\(proisstrict\\)\\ ON\\ TABLE\\ pg_catalog\\.pg_proc\\ TO\\ PUBLIC\\;\\n.*\n\t\tGRANT\\ SELECT\\(proretset\\)\\ ON\\ TABLE\\ pg_catalog\\.pg_proc\\ TO\\ PUBLIC\\;\\n.*\n\t\tGRANT\\ SELECT\\(provolatile\\)\\ ON\\ TABLE\\ pg_catalog\\.pg_proc\\ TO\\ PUBLIC\\;\\n.*\n\t\tGRANT\\ SELECT\\(proparallel\\)\\ ON\\ TABLE\\ pg_catalog\\.pg_proc\\ TO\\ PUBLIC\\;\\n.*\n\t\tGRANT\\ SELECT\\(pronargs\\)\\ ON\\ TABLE\\ pg_catalog\\.pg_proc\\ TO\\ PUBLIC\\;\\n.*\n\t\tGRANT\\ SELECT\\(pronargdefaults\\)\\ ON\\ TABLE\\ pg_catalog\\.pg_proc\\ TO\\ PUBLIC\\;\\n.*\n\t\tGRANT\\ SELECT\\(prorettype\\)\\ ON\\ TABLE\\ pg_catalog\\.pg_proc\\ TO\\ PUBLIC\\;\\n.*\n\t\tGRANT\\ SELECT\\(proargtypes\\)\\ ON\\ TABLE\\ pg_catalog\\.pg_proc\\ TO\\ PUBLIC\\;\\n.*\n\t\tGRANT\\ SELECT\\(proallargtypes\\)\\ ON\\ TABLE\\ pg_catalog\\.pg_proc\\ TO\\ PUBLIC\\;\\n.*\n\t\tGRANT\\ SELECT\\(proargmodes\\)\\ ON\\ TABLE\\ pg_catalog\\.pg_proc\\ TO\\ PUBLIC\\;\\n.*\n\t\tGRANT\\ SELECT\\(proargnames\\)\\ ON\\ TABLE\\ pg_catalog\\.pg_proc\\ TO\\ PUBLIC\\;\\n.*\n\t\tGRANT\\ SELECT\\(proargdefaults\\)\\ ON\\ TABLE\\ pg_catalog\\.pg_proc\\ TO\\ PUBLIC\\;\\n.*\n\t\tGRANT\\ SELECT\\(protrftypes\\)\\ ON\\ TABLE\\ pg_catalog\\.pg_proc\\ TO\\ PUBLIC\\;\\n.*\n\t\tGRANT\\ SELECT\\(prosrc\\)\\ ON\\ TABLE\\ pg_catalog\\.pg_proc\\ TO\\ PUBLIC\\;\\n.*\n\t\tGRANT\\ SELECT\\(probin\\)\\ ON\\ TABLE\\ pg_catalog\\.pg_proc\\ TO\\ PUBLIC\\;\\n.*\n\t\tGRANT\\ SELECT\\(proconfig\\)\\ ON\\ TABLE\\ pg_catalog\\.pg_proc\\ TO\\ PUBLIC\\;\\n.*\n\t\tGRANT\\ SELECT\\(proacl\\)\\ ON\\ TABLE\\ pg_catalog\\.pg_proc\\ TO\\ PUBLIC\\;)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 50,
+      "create_sql" : "SELECT pg_catalog.lo_from_bytea(0, '\\x310a320a330a340a350a360a370a380a390a');",
+      "icu" : false,
+      "name" : "LO create (using lo_from_bytea)",
+      "regexp" : "(?^m:^SELECT pg_catalog\\.lo_create\\('\\d+'\\);)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 51,
+      "create_sql" : "CREATE CAST (timestamptz AS interval) WITH FUNCTION age(timestamptz) AS ASSIGNMENT;",
+      "icu" : false,
+      "name" : "CREATE CAST FOR timestamptz",
+      "regexp" : "(?^m:CREATE CAST \\(timestamp with time zone AS interval\\) WITH FUNCTION pg_catalog\\.age\\(timestamp with time zone\\) AS ASSIGNMENT;)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 52,
+      "create_sql" : "CREATE ACCESS METHOD gist2 TYPE INDEX HANDLER gisthandler;",
+      "icu" : false,
+      "name" : "CREATE ACCESS METHOD gist2",
+      "regexp" : "(?^m:CREATE ACCESS METHOD gist2 TYPE INDEX HANDLER gisthandler;)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 53,
+      "create_sql" : "CREATE TABLE dump_test.test_fifth_table (\n\t\t\t\t\t\t\tcol1 integer,\n\t\t\t\t\t\t\tcol2 boolean,\n\t\t\t\t\t\t\tcol3 boolean,\n\t\t\t\t\t\t\tcol4 bit(5),\n\t\t\t\t\t\t\tcol5 float8\n\t\t\t\t\t   );",
+      "icu" : false,
+      "name" : "CREATE TABLE test_fifth_table",
+      "regexp" : "(?^mx:^\n\t\t\tCREATE\\ TABLE\\ dump_test\\.test_fifth_table\\ \\(\n\t\t\t\\n\\s+col1\\ integer\\,\n\t\t\t\\n\\s+col2\\ boolean\\,\n\t\t\t\\n\\s+col3\\ boolean\\,\n\t\t\t\\n\\s+col4\\ bit\\(5\\)\\,\n\t\t\t\\n\\s+col5\\ double\\ precision\n\t\t\t\\n\\);\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 58,
+      "create_sql" : "CREATE MATERIALIZED VIEW\n\t\t\t\t\t\t   dump_test.matview_third (col1) AS\n\t\t\t\t\t\t   SELECT * FROM dump_test.matview_second WITH NO DATA;",
+      "icu" : false,
+      "name" : "CREATE MATERIALIZED VIEW matview_third",
+      "regexp" : "(?^mx:^\n\t\t\tCREATE\\ MATERIALIZED\\ VIEW\\ dump_test\\.matview_third\\ AS\n\t\t\t\\n\\s+SELECT\\ col1\n\t\t\t\\n\\s+FROM\\ dump_test\\.matview_second\n\t\t\t\\n\\s+WITH\\ NO\\ DATA\\;\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 59,
+      "create_sql" : "CREATE MATERIALIZED VIEW\n\t\t\t\t\t\t   dump_test.matview_fourth (col1) AS\n\t\t\t\t\t\t   SELECT * FROM dump_test.matview_third WITH NO DATA;",
+      "icu" : false,
+      "name" : "CREATE MATERIALIZED VIEW matview_fourth",
+      "regexp" : "(?^mx:^\n\t\t\tCREATE\\ MATERIALIZED\\ VIEW\\ dump_test\\.matview_fourth\\ AS\n\t\t\t\\n\\s+SELECT\\ col1\n\t\t\t\\n\\s+FROM\\ dump_test\\.matview_third\n\t\t\t\\n\\s+WITH\\ NO\\ DATA\\;\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 60,
+      "create_sql" : "DO $$\n\t\t\t\t\t\t DECLARE myoid oid;\n\t\t\t\t\t\t BEGIN\n\t\t\t\t\t\t\tSELECT loid FROM pg_largeobject INTO myoid;\n\t\t\t\t\t\t\tEXECUTE 'GRANT ALL ON LARGE OBJECT ' || myoid || ' TO regress_dump_test_role;';\n\t\t\t\t\t\t END;\n\t\t\t\t\t\t $$;",
+      "icu" : false,
+      "name" : "GRANT ALL ON LARGE OBJECT ...",
+      "regexp" : "(?^mx:^\n\t\t\tGRANT\\ ALL\\ ON\\ LARGE\\ OBJECT\\ [0-9]+\\ TO\\ regress_dump_test_role\\;\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 61,
+      "create_sql" : "CREATE VIEW dump_test.test_view\n\t\t                   WITH (check_option = 'local', security_barrier = true) AS\n\t\t                   SELECT col1 FROM dump_test.test_table;",
+      "icu" : false,
+      "name" : "CREATE VIEW test_view",
+      "regexp" : "(?^mx:^\n\t\t\tCREATE\\ VIEW\\ dump_test\\.test_view\\ WITH\\ \\(security_barrier\\=\\'true\\'\\)\\ AS\n\t\t\t\\n\\s+SELECT\\ col1\n\t\t\t\\n\\s+FROM\\ dump_test\\.test_table\n\t\t\t\\n\\s+WITH\\ LOCAL\\ CHECK\\ OPTION\\;)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 62,
+      "create_sql" : "ALTER VIEW dump_test.test_view ALTER COLUMN col1 SET DEFAULT 1;",
+      "icu" : false,
+      "name" : "ALTER VIEW test_view SET DEFAULT",
+      "regexp" : "(?^mx:^\n\t\t\tALTER\\ TABLE\\ ONLY\\ dump_test\\.test_view\\ ALTER\\ COLUMN\\ col1\\ SET\\ DEFAULT\\ 1\\;)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 63,
+      "create_sql" : "COMMENT ON COLUMN dump_test.test_second_table.col1\n\t\t\t\t\t   IS 'comment on column col1';",
+      "icu" : false,
+      "name" : "COMMENT ON COLUMN dump_test.test_second_table.col1",
+      "regexp" : "(?^mx:^\n\t\t\tCOMMENT\\ ON\\ COLUMN\\ dump_test\\.test_second_table\\.col1\\ IS\\ \\'comment\\ on\\ column\\ col1\\'\\;\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 64,
+      "create_sql" : "COMMENT ON COLUMN dump_test.test_second_table.col2\n\t\t\t\t\t   IS 'comment on column col2';",
+      "icu" : false,
+      "name" : "COMMENT ON COLUMN dump_test.test_second_table.col2",
+      "regexp" : "(?^mx:^\n\t\t\tCOMMENT\\ ON\\ COLUMN\\ dump_test\\.test_second_table\\.col2\\ IS\\ \\'comment\\ on\\ column\\ col2\\'\\;\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 65,
+      "create_sql" : "DO $$\n\t\t\t\t\t\t DECLARE myoid oid;\n\t\t\t\t\t\t BEGIN\n\t\t\t\t\t\t\tSELECT loid FROM pg_largeobject INTO myoid;\n\t\t\t\t\t\t\tEXECUTE 'COMMENT ON LARGE OBJECT ' || myoid || ' IS ''comment on large object'';';\n\t\t\t\t\t\t END;\n\t\t\t\t\t\t $$;",
+      "icu" : false,
+      "name" : "COMMENT ON LARGE OBJECT ...",
+      "regexp" : "(?^mx:^\n\t\t\tCOMMENT\\ ON\\ LARGE\\ OBJECT\\ [0-9]+\\ IS\\ \\'comment\\ on\\ large\\ object\\'\\;\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 66,
+      "create_sql" : "GRANT USAGE ON TYPE dump_test.planets TO regress_dump_test_role;",
+      "icu" : false,
+      "name" : "GRANT USAGE ON TYPE dump_test.planets - ENUM",
+      "regexp" : "(?^mx:^\n\t\t\tGRANT\\ ALL\\ ON\\ TYPE\\ dump_test\\.planets\\ TO\\ regress_dump_test_role\\;\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 67,
+      "create_sql" : "GRANT USAGE ON TYPE dump_test.textrange TO regress_dump_test_role;",
+      "icu" : false,
+      "name" : "GRANT USAGE ON TYPE dump_test.textrange - RANGE",
+      "regexp" : "(?^mx:^\n\t\t\tGRANT\\ ALL\\ ON\\ TYPE\\ dump_test\\.textrange\\ TO\\ regress_dump_test_role\\;\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 68,
+      "create_sql" : "COMMENT ON TYPE dump_test.planets\n\t\t\t\t\t   IS 'comment on enum type';",
+      "icu" : false,
+      "name" : "COMMENT ON TYPE dump_test.planets - ENUM",
+      "regexp" : "(?^m:^COMMENT\\ ON\\ TYPE\\ dump_test\\.planets\\ IS\\ \\'comment\\ on\\ enum\\ type\\'\\;)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 69,
+      "create_sql" : "COMMENT ON TYPE dump_test.textrange\n\t\t\t\t\t   IS 'comment on range type';",
+      "icu" : false,
+      "name" : "COMMENT ON TYPE dump_test.textrange - RANGE",
+      "regexp" : "(?^m:^COMMENT\\ ON\\ TYPE\\ dump_test\\.textrange\\ IS\\ \\'comment\\ on\\ range\\ type\\'\\;)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 70,
+      "create_sql" : "COMMENT ON TYPE dump_test.int42\n\t\t\t\t\t   IS 'comment on regular type';",
+      "icu" : false,
+      "name" : "COMMENT ON TYPE dump_test.int42 - Regular",
+      "regexp" : "(?^m:^COMMENT\\ ON\\ TYPE\\ dump_test\\.int42\\ IS\\ \\'comment\\ on\\ regular\\ type\\'\\;)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 71,
+      "create_sql" : "COMMENT ON TYPE dump_test.undefined\n\t\t\t\t\t   IS 'comment on undefined type';",
+      "icu" : false,
+      "name" : "COMMENT ON TYPE dump_test.undefined - Undefined",
+      "regexp" : "(?^m:^COMMENT\\ ON\\ TYPE\\ dump_test\\.undefined\\ IS\\ \\'comment\\ on\\ undefined\\ type\\'\\;)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 72,
+      "create_sql" : "GRANT USAGE ON DOMAIN dump_test.us_postal_code TO regress_dump_test_role;",
+      "icu" : false,
+      "name" : "GRANT USAGE ON DOMAIN dump_test.us_postal_code",
+      "regexp" : "(?^mx:^\n\t\t\tGRANT\\ ALL\\ ON\\ TYPE\\ dump_test\\.us_postal_code\\ TO\\ regress_dump_test_role\\;\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 73,
+      "create_sql" : "CREATE OPERATOR FAMILY dump_test.op_family USING btree;",
+      "icu" : false,
+      "name" : "CREATE OPERATOR FAMILY dump_test.op_family",
+      "regexp" : "(?^mx:^\n\t\t\tCREATE\\ OPERATOR\\ FAMILY\\ dump_test\\.op_family\\ USING\\ btree\\;\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 74,
+      "create_sql" : "CREATE OPERATOR CLASS dump_test.op_class\n\t\t                 FOR TYPE bigint USING btree FAMILY dump_test.op_family\n\t\t\t\t\t\t AS STORAGE bigint,\n\t\t\t\t\t\t OPERATOR 1 <(bigint,bigint),\n\t\t\t\t\t\t OPERATOR 2 <=(bigint,bigint),\n\t\t\t\t\t\t OPERATOR 3 =(bigint,bigint),\n\t\t\t\t\t\t OPERATOR 4 >=(bigint,bigint),\n\t\t\t\t\t\t OPERATOR 5 >(bigint,bigint),\n\t\t\t\t\t\t FUNCTION 1 btint8cmp(bigint,bigint),\n\t\t\t\t\t\t FUNCTION 2 btint8sortsupport(internal),\n\t\t\t\t\t\t FUNCTION 4 btequalimage(oid);",
+      "icu" : false,
+      "name" : "CREATE OPERATOR CLASS dump_test.op_class",
+      "regexp" : "(?^mx:^\n\t\t\tCREATE\\ OPERATOR\\ CLASS\\ dump_test\\.op_class\\n\\s+\n\t\t\tFOR\\ TYPE\\ bigint\\ USING\\ btree\\ FAMILY\\ dump_test\\.op_family\\ AS\\n\\s+\n\t\t\tOPERATOR\\ 1\\ \\<\\(bigint\\,bigint\\)\\ \\,\\n\\s+\n\t\t\tOPERATOR\\ 2\\ \\<\\=\\(bigint\\,bigint\\)\\ \\,\\n\\s+\n\t\t\tOPERATOR\\ 3\\ \\=\\(bigint\\,bigint\\)\\ \\,\\n\\s+\n\t\t\tOPERATOR\\ 4\\ \\>\\=\\(bigint\\,bigint\\)\\ \\,\\n\\s+\n\t\t\tOPERATOR\\ 5\\ \\>\\(bigint\\,bigint\\)\\ \\,\\n\\s+\n\t\t\tFUNCTION\\ 1\\ \\(bigint\\,\\ bigint\\)\\ btint8cmp\\(bigint\\,bigint\\)\\;\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 74,
+      "create_sql" : "CREATE OPERATOR dump_test.~~ (\n\t\t\t\t\t\t\t PROCEDURE = int4eq,\n\t\t\t\t\t\t\t LEFTARG = int,\n\t\t\t\t\t\t\t RIGHTARG = int);\n\t\t\t\t\t\t CREATE OPERATOR CLASS dump_test.op_class_custom\n\t\t\t\t\t\t\t FOR TYPE int USING btree AS\n\t\t\t\t\t\t\t OPERATOR 3 dump_test.~~;\n\t\t\t\t\t\t CREATE TYPE dump_test.range_type_custom AS RANGE (\n\t\t\t\t\t\t\t subtype = int,\n\t\t\t\t\t\t\t subtype_opclass = dump_test.op_class_custom);",
+      "icu" : false,
+      "name" : "CREATE OPERATOR CLASS dump_test.op_class_custom",
+      "regexp" : "(?^msx:^\n\t\t\tCREATE\\ OPERATOR\\ dump_test\\.\\~\\~\\ \\(\\n.+\n\t\t\tCREATE\\ OPERATOR\\ FAMILY\\ dump_test\\.op_class_custom\\ USING\\ btree\\;\\n.+\n\t\t\tCREATE\\ OPERATOR\\ CLASS\\ dump_test\\.op_class_custom\\n\\s+\n\t\t\tFOR\\ TYPE\\ integer\\ USING\\ btree\\ FAMILY\\ dump_test\\.op_class_custom\\ AS\\n\\s+\n\t\t\tOPERATOR\\ 3\\ dump_test\\.\\~\\~\\(integer\\,integer\\)\\;\\n.+\n\t\t\tCREATE\\ TYPE\\ dump_test\\.range_type_custom\\ AS\\ RANGE\\ \\(\\n\\s+\n\t\t\tsubtype\\ \\=\\ integer\\,\\n\\s+\n\t\t\tmultirange_type_name\\ \\=\\ dump_test\\.multirange_type_custom\\,\\n\\s+\n\t\t\tsubtype_opclass\\ \\=\\ dump_test\\.op_class_custom\\n\n\t\t\t\\)\\;\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 75,
+      "create_sql" : "ALTER OPERATOR FAMILY dump_test.op_family USING btree ADD\n\t\t\t\t\t\t OPERATOR 1 <(bigint,int4),\n\t\t\t\t\t\t OPERATOR 2 <=(bigint,int4),\n\t\t\t\t\t\t OPERATOR 3 =(bigint,int4),\n\t\t\t\t\t\t OPERATOR 4 >=(bigint,int4),\n\t\t\t\t\t\t OPERATOR 5 >(bigint,int4),\n\t\t\t\t\t\t FUNCTION 1 (int4, int4) btint4cmp(int4,int4),\n\t\t\t\t\t\t FUNCTION 2 (int4, int4) btint4sortsupport(internal),\n\t\t\t\t\t\t FUNCTION 4 (int4, int4) btequalimage(oid);",
+      "icu" : false,
+      "name" : "ALTER OPERATOR FAMILY dump_test.op_family USING btree",
+      "regexp" : "(?^mx:^\n\t\t\tALTER\\ OPERATOR\\ FAMILY\\ dump_test\\.op_family\\ USING\\ btree\\ ADD\\n\\s+\n\t\t\tOPERATOR\\ 1\\ \\<\\(bigint\\,integer\\)\\ \\,\\n\\s+\n\t\t\tOPERATOR\\ 2\\ \\<\\=\\(bigint\\,integer\\)\\ \\,\\n\\s+\n\t\t\tOPERATOR\\ 3\\ \\=\\(bigint\\,integer\\)\\ \\,\\n\\s+\n\t\t\tOPERATOR\\ 4\\ \\>\\=\\(bigint\\,integer\\)\\ \\,\\n\\s+\n\t\t\tOPERATOR\\ 5\\ \\>\\(bigint\\,integer\\)\\ \\,\\n\\s+\n\t\t\tFUNCTION\\ 1\\ \\(integer\\,\\ integer\\)\\ btint4cmp\\(integer\\,integer\\)\\ \\,\\n\\s+\n\t\t\tFUNCTION\\ 2\\ \\(bigint\\,\\ bigint\\)\\ btint8sortsupport\\(internal\\)\\ \\,\\n\\s+\n\t\t\tFUNCTION\\ 2\\ \\(integer\\,\\ integer\\)\\ btint4sortsupport\\(internal\\)\\ \\,\\n\\s+\n\t\t\tFUNCTION\\ 4\\ \\(bigint\\,\\ bigint\\)\\ btequalimage\\(oid\\)\\ \\,\\n\\s+\n\t\t\tFUNCTION\\ 4\\ \\(integer\\,\\ integer\\)\\ btequalimage\\(oid\\)\\;\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 76,
+      "create_sql" : "CREATE COLLATION icu_collation (PROVIDER = icu, LOCALE = 'en-US-u-va-posix');",
+      "icu" : true,
+      "name" : "CREATE COLLATION icu_collation",
+      "regexp" : "(?^m:CREATE COLLATION public.icu_collation \\(provider = icu, locale = 'en-US-u-va-posix'(, version = '[^']*')?\\);)"
+   },
+   {
+      "collation" : true,
+      "create_order" : 76,
+      "create_sql" : "CREATE COLLATION test0 FROM \"C\";",
+      "icu" : false,
+      "name" : "CREATE COLLATION test0 FROM \"C\"",
+      "regexp" : "(?^m:CREATE COLLATION public.test0 \\(provider = libc, locale = 'C'(, version = '[^']*')?\\);)"
+   },
+   {
+      "collation" : true,
+      "create_order" : 77,
+      "create_sql" : "COMMENT ON COLLATION test0\n\t\t\t\t\t   IS 'comment on test0 collation';",
+      "icu" : false,
+      "name" : "COMMENT ON COLLATION test0",
+      "regexp" : "(?^m:^COMMENT\\ ON\\ COLLATION\\ public\\.test0\\ IS\\ \\'comment\\ on\\ test0\\ collation\\'\\;)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 78,
+      "create_sql" : "CREATE DEFAULT CONVERSION dump_test.test_conversion FOR 'LATIN1' TO 'UTF8' FROM iso8859_1_to_utf8;",
+      "icu" : false,
+      "name" : "CREATE CONVERSION dump_test.test_conversion",
+      "regexp" : "(?^mx:^CREATE\\ DEFAULT\\ CONVERSION\\ dump_test\\.test_conversion\\ FOR\\ \\'LATIN1\\'\\ TO\\ \\'UTF8\\'\\ FROM\\ iso8859_1_to_utf8\\;)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 79,
+      "create_sql" : "COMMENT ON CONVERSION dump_test.test_conversion\n\t\t\t\t\t   IS 'comment on test conversion';",
+      "icu" : false,
+      "name" : "COMMENT ON CONVERSION dump_test.test_conversion",
+      "regexp" : "(?^m:^COMMENT\\ ON\\ CONVERSION\\ dump_test\\.test_conversion\\ IS\\ \\'comment\\ on\\ test\\ conversion\\'\\;)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 80,
+      "create_sql" : "CREATE TEXT SEARCH CONFIGURATION dump_test.alt_ts_conf1 (copy=english);",
+      "icu" : false,
+      "name" : "CREATE TEXT SEARCH CONFIGURATION dump_test.alt_ts_conf1",
+      "regexp" : "(?^mx:^\n\t\t\tCREATE\\ TEXT\\ SEARCH\\ CONFIGURATION\\ dump_test\\.alt_ts_conf1\\ \\(\\n\n\t\t\t\\s+PARSER\\ \\=\\ pg_catalog\\.\\\"default\\\"\\ \\)\\;)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 81,
+      "create_sql" : "CREATE TEXT SEARCH TEMPLATE dump_test.alt_ts_temp1 (lexize=dsimple_lexize);",
+      "icu" : false,
+      "name" : "CREATE TEXT SEARCH TEMPLATE dump_test.alt_ts_temp1",
+      "regexp" : "(?^mx:^\n\t\t\tCREATE\\ TEXT\\ SEARCH\\ TEMPLATE\\ dump_test\\.alt_ts_temp1\\ \\(\\n\n\t\t\t\\s+LEXIZE\\ \\=\\ dsimple_lexize\\ \\)\\;)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 82,
+      "create_sql" : "CREATE TEXT SEARCH PARSER dump_test.alt_ts_prs1\n\t\t(start = prsd_start, gettoken = prsd_nexttoken, end = prsd_end, lextypes = prsd_lextype);",
+      "icu" : false,
+      "name" : "CREATE TEXT SEARCH PARSER dump_test.alt_ts_prs1",
+      "regexp" : "(?^mx:^\n\t\t\tCREATE\\ TEXT\\ SEARCH\\ PARSER\\ dump_test\\.alt_ts_prs1\\ \\(\\n\n\t\t\t\\s+START\\ \\=\\ prsd_start\\,\\n\n\t\t\t\\s+GETTOKEN\\ \\=\\ prsd_nexttoken\\,\\n\n\t\t\t\\s+END\\ \\=\\ prsd_end\\,\\n\n\t\t\t\\s+LEXTYPES\\ \\=\\ prsd_lextype\\ \\)\\;\\n\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 83,
+      "create_sql" : "CREATE TEXT SEARCH DICTIONARY dump_test.alt_ts_dict1 (template=simple);",
+      "icu" : false,
+      "name" : "CREATE TEXT SEARCH DICTIONARY dump_test.alt_ts_dict1",
+      "regexp" : "(?^mx:^\n\t\t\tCREATE\\ TEXT\\ SEARCH\\ DICTIONARY\\ dump_test\\.alt_ts_dict1\\ \\(\\n\n\t\t\t\\s+TEMPLATE\\ \\=\\ pg_catalog\\.simple\\ \\)\\;\\n\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 84,
+      "create_sql" : "COMMENT ON TEXT SEARCH CONFIGURATION dump_test.alt_ts_conf1\n\t\t\t\t\t   IS 'comment on text search configuration';",
+      "icu" : false,
+      "name" : "COMMENT ON TEXT SEARCH CONFIGURATION dump_test.alt_ts_conf1",
+      "regexp" : "(?^m:^COMMENT\\ ON\\ TEXT\\ SEARCH\\ CONFIGURATION\\ dump_test\\.alt_ts_conf1\\ IS\\ \\'comment\\ on\\ text\\ search\\ configuration\\'\\;)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 84,
+      "create_sql" : "COMMENT ON TEXT SEARCH DICTIONARY dump_test.alt_ts_dict1\n\t\t\t\t\t   IS 'comment on text search dictionary';",
+      "icu" : false,
+      "name" : "COMMENT ON TEXT SEARCH DICTIONARY dump_test.alt_ts_dict1",
+      "regexp" : "(?^m:^COMMENT\\ ON\\ TEXT\\ SEARCH\\ DICTIONARY\\ dump_test\\.alt_ts_dict1\\ IS\\ \\'comment\\ on\\ text\\ search\\ dictionary\\'\\;)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 84,
+      "create_sql" : "COMMENT ON TEXT SEARCH PARSER dump_test.alt_ts_prs1\n\t\t\t\t\t   IS 'comment on text search parser';",
+      "icu" : false,
+      "name" : "COMMENT ON TEXT SEARCH PARSER dump_test.alt_ts_prs1",
+      "regexp" : "(?^m:^COMMENT\\ ON\\ TEXT\\ SEARCH\\ PARSER\\ dump_test\\.alt_ts_prs1\\ IS\\ \\'comment\\ on\\ text\\ search\\ parser\\'\\;)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 84,
+      "create_sql" : "COMMENT ON TEXT SEARCH TEMPLATE dump_test.alt_ts_temp1\n\t\t\t\t\t   IS 'comment on text search template';",
+      "icu" : false,
+      "name" : "COMMENT ON TEXT SEARCH TEMPLATE dump_test.alt_ts_temp1",
+      "regexp" : "(?^m:^COMMENT\\ ON\\ TEXT\\ SEARCH\\ TEMPLATE\\ dump_test\\.alt_ts_temp1\\ IS\\ \\'comment\\ on\\ text\\ search\\ template\\'\\;)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 85,
+      "create_sql" : "GRANT USAGE ON FOREIGN DATA WRAPPER dummy\n\t\t\t\t\t\t   TO regress_dump_test_role;",
+      "icu" : false,
+      "name" : "GRANT USAGE ON FOREIGN DATA WRAPPER dummy",
+      "regexp" : "(?^mx:^\n\t\t\tGRANT\\ ALL\\ ON\\ FOREIGN\\ DATA\\ WRAPPER\\ dummy\\ TO\\ regress_dump_test_role\\;\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 85,
+      "create_sql" : "GRANT USAGE ON FOREIGN SERVER s1\n\t\t\t\t\t\t   TO regress_dump_test_role;",
+      "icu" : false,
+      "name" : "GRANT USAGE ON FOREIGN SERVER s1",
+      "regexp" : "(?^mx:^\n\t\t\tGRANT\\ ALL\\ ON\\ FOREIGN\\ SERVER\\ s1\\ TO\\ regress_dump_test_role\\;\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 86,
+      "create_sql" : "CREATE USER MAPPING FOR regress_dump_test_role SERVER s1;",
+      "icu" : false,
+      "name" : "CREATE USER MAPPING FOR regress_dump_test_role SERVER s1",
+      "regexp" : "(?^m:CREATE USER MAPPING FOR regress_dump_test_role SERVER s1;)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 87,
+      "create_sql" : "GRANT USAGE ON TYPE dump_test.int42 TO regress_dump_test_role;",
+      "icu" : false,
+      "name" : "GRANT USAGE ON TYPE dump_test.int42",
+      "regexp" : "(?^mx:^\n\t\t\tGRANT\\ ALL\\ ON\\ TYPE\\ dump_test\\.int42\\ TO\\ regress_dump_test_role\\;\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 88,
+      "create_sql" : "CREATE FOREIGN TABLE dump_test.foreign_table (c1 int options (column_name 'col1'))\n\t\t\t\t\t\tSERVER s1 OPTIONS (schema_name 'x1');",
+      "icu" : false,
+      "name" : "CREATE FOREIGN TABLE dump_test.foreign_table SERVER s1",
+      "regexp" : "(?^mx:\n\t\t\tCREATE\\ FOREIGN\\ TABLE\\ dump_test\\.foreign_table\\ \\(\\n\n\t\t\t\\s+c1\\ integer\\n\n\t\t\t\\)\\n\n\t\t\tSERVER\\ s1\\n\n\t\t\tOPTIONS\\ \\(\\n\n\t\t\t\\s+schema_name\\ \\'x1\\'\\n\n\t\t\t\\)\\;\\n\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 89,
+      "create_sql" : "CREATE OPERATOR CLASS dump_test.op_class_empty\n\t\t                 FOR TYPE bigint USING btree FAMILY dump_test.op_family\n\t\t\t\t\t\t AS STORAGE bigint;",
+      "icu" : false,
+      "name" : "CREATE OPERATOR CLASS dump_test.op_class_empty",
+      "regexp" : "(?^mx:^\n\t\t\tCREATE\\ OPERATOR\\ CLASS\\ dump_test\\.op_class_empty\\n\\s+\n\t\t\tFOR\\ TYPE\\ bigint\\ USING\\ btree\\ FAMILY\\ dump_test\\.op_family\\ AS\\n\\s+\n\t\t\tSTORAGE\\ bigint\\;\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 90,
+      "create_sql" : "CREATE TABLE dump_test.measurement (\n\t\t\t\t\t\tcity_id serial not null,\n\t\t\t\t\t\tlogdate date not null,\n\t\t\t\t\t\tpeaktemp int CHECK (peaktemp >= -460),\n\t\t\t\t\t\tunitsales int\n\t\t\t\t\t   ) PARTITION BY RANGE (logdate);",
+      "icu" : false,
+      "name" : "CREATE TABLE measurement PARTITIONED BY",
+      "regexp" : "(?^mx:^\n\t\t\t\\-\\-\\ Name\\:\\ measurement\\;.*\\n\n\t\t\t\\-\\-\\n\\n\n\t\t\tCREATE\\ TABLE\\ dump_test\\.measurement\\ \\(\\n\n\t\t\t\\s+city_id\\ integer\\ NOT\\ NULL\\,\\n\n\t\t\t\\s+logdate\\ date\\ NOT\\ NULL\\,\\n\n\t\t\t\\s+peaktemp\\ integer\\,\\n\n\t\t\t\\s+unitsales\\ integer\\,\\n\n\t\t\t\\s+CONSTRAINT\\ measurement_peaktemp_check\\ CHECK\\ \\(\\(peaktemp\\ \\>\\=\\ \\'\\-460\\'\\:\\:integer\\)\\)\\n\n\t\t\t\\)\\n\n\t\t\tPARTITION\\ BY\\ RANGE\\ \\(logdate\\)\\;\\n\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 90,
+      "create_sql" : "CREATE TABLE dump_test.test_inheritance_parent (\n\t\t\t\t\t\t   col1 int NOT NULL,\n\t\t\t\t\t\t   col2 int CHECK (col2 >= 42)\n\t\t\t\t\t\t );",
+      "icu" : false,
+      "name" : "CREATE TABLE test_inheritance_parent",
+      "regexp" : "(?^mx:^\n\t\tCREATE\\ TABLE\\ dump_test\\.test_inheritance_parent\\ \\(\\n\n\t\t\\s+col1\\ integer\\ NOT\\ NULL\\,\\n\n\t\t\\s+col2\\ integer\\,\\n\n\t\t\\s+CONSTRAINT\\ test_inheritance_parent_col2_check\\ CHECK\\ \\(\\(col2\\ \\>\\=\\ 42\\)\\)\\n\n\t\t\\)\\;\\n\n\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 91,
+      "create_sql" : "CREATE TABLE dump_test.test_inheritance_child (\n\t\t\t\t\t\t    col1 int NOT NULL,\n\t\t\t\t\t\t    CONSTRAINT test_inheritance_child CHECK (col2 >= 142857)\n\t\t\t\t\t\t) INHERITS (dump_test.test_inheritance_parent);",
+      "icu" : false,
+      "name" : "CREATE TABLE test_inheritance_child",
+      "regexp" : "(?^mx:^\n\t\tCREATE\\ TABLE\\ dump_test\\.test_inheritance_child\\ \\(\\n\n\t\t\\s+col1\\ integer\\,\\n\n\t\t\\s+CONSTRAINT\\ test_inheritance_child\\ CHECK\\ \\(\\(col2\\ \\>\\=\\ 142857\\)\\)\\n\n\t\t\\)\\n\n\t\tINHERITS\\ \\(dump_test\\.test_inheritance_parent\\)\\;\\n\n\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 91,
+      "create_sql" : "GRANT SELECT ON TABLE dump_test.measurement\n\t\t\t\t\t\t   TO regress_dump_test_role;\n\t\t\t\t\t   GRANT SELECT(city_id) ON TABLE dump_test.measurement\n\t\t\t\t\t\t   TO \"regress_quoted  \\\"\" role\";",
+      "icu" : false,
+      "name" : "GRANT SELECT ON TABLE measurement",
+      "regexp" : "(?^msx:^GRANT\\ SELECT\\ ON\\ TABLE\\ dump_test\\.measurement\\ TO\\ regress_dump_test_role\\;\\n.*\n\t\t\t ^GRANT\\ SELECT\\(city_id\\)\\ ON\\ TABLE\\ dump_test\\.measurement\\ TO\\ \\\"regress_quoted\\ \\ \\\\\\\"\\\"\\ role\\\"\\;)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 91,
+      "create_sql" : "CREATE TABLE dump_test_second_schema.measurement_y2006m2\n\t\t\t\t\t\tPARTITION OF dump_test.measurement (\n\t\t\t\t\t\t\tunitsales DEFAULT 0 CHECK (unitsales >= 0)\n\t\t\t\t\t\t)\n\t\t\t\t\t\tFOR VALUES FROM ('2006-02-01') TO ('2006-03-01');",
+      "icu" : false,
+      "name" : "Partition measurement_y2006m2 creation",
+      "regexp" : "(?^mx:^\n\t\t\tCREATE\\ TABLE\\ dump_test_second_schema\\.measurement_y2006m2\\ \\(\\n\n\t\t\t\\s+city_id\\ integer\\ DEFAULT\\ nextval\\(\\'dump_test\\.measurement_city_id_seq\\'\\:\\:regclass\\)\\ NOT\\ NULL\\,\\n\n\t\t\t\\s+logdate\\ date\\ NOT\\ NULL\\,\\n\n\t\t\t\\s+peaktemp\\ integer\\,\\n\n\t\t\t\\s+unitsales\\ integer\\ DEFAULT\\ 0\\,\\n\n\t\t\t\\s+CONSTRAINT\\ measurement_peaktemp_check\\ CHECK\\ \\(\\(peaktemp\\ \\>\\=\\ \\'\\-460\\'\\:\\:integer\\)\\)\\,\\n\n\t\t\t\\s+CONSTRAINT\\ measurement_y2006m2_unitsales_check\\ CHECK\\ \\(\\(unitsales\\ \\>\\=\\ 0\\)\\)\\n\n\t\t\t\\);\\n\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 93,
+      "create_sql" : "ALTER TABLE dump_test.test_table ALTER COLUMN col1 SET STATISTICS 90;",
+      "icu" : false,
+      "name" : "ALTER TABLE ONLY test_table ALTER COLUMN col1 SET STATISTICS 90",
+      "regexp" : "(?^mx:^\n\t\t\tALTER\\ TABLE\\ ONLY\\ dump_test\\.test_table\\ ALTER\\ COLUMN\\ col1\\ SET\\ STATISTICS\\ 90\\;\\n\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 94,
+      "create_sql" : "ALTER TABLE dump_test.test_table ALTER COLUMN col2 SET STORAGE EXTERNAL;",
+      "icu" : false,
+      "name" : "ALTER TABLE ONLY test_table ALTER COLUMN col2 SET STORAGE",
+      "regexp" : "(?^mx:^\n\t\t\tALTER\\ TABLE\\ ONLY\\ dump_test\\.test_table\\ ALTER\\ COLUMN\\ col2\\ SET\\ STORAGE\\ EXTERNAL\\;\\n\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 94,
+      "create_sql" : "GRANT SELECT ON TABLE\n\t\t\t\t\t\t   dump_test_second_schema.measurement_y2006m2,\n\t\t\t\t\t\t   dump_test_second_schema.measurement_y2006m3,\n\t\t\t\t\t\t   dump_test_second_schema.measurement_y2006m4,\n\t\t\t\t\t\t   dump_test_second_schema.measurement_y2006m5\n\t\t\t\t\t\t   TO regress_dump_test_role;",
+      "icu" : false,
+      "name" : "GRANT SELECT ON TABLE measurement_y2006m2",
+      "regexp" : "(?^m:^GRANT\\ SELECT\\ ON\\ TABLE\\ dump_test_second_schema\\.measurement_y2006m2\\ TO\\ regress_dump_test_role\\;)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 95,
+      "create_sql" : "ALTER TABLE dump_test.test_table ALTER COLUMN col3 SET STORAGE MAIN;",
+      "icu" : false,
+      "name" : "ALTER TABLE ONLY test_table ALTER COLUMN col3 SET STORAGE",
+      "regexp" : "(?^mx:^\n\t\t\tALTER\\ TABLE\\ ONLY\\ dump_test\\.test_table\\ ALTER\\ COLUMN\\ col3\\ SET\\ STORAGE\\ MAIN\\;\\n\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 95,
+      "create_sql" : "ALTER TABLE dump_test.test_table ALTER COLUMN col4 SET (n_distinct = 10);",
+      "icu" : false,
+      "name" : "ALTER TABLE ONLY test_table ALTER COLUMN col4 SET n_distinct",
+      "regexp" : "(?^mx:^\n\t\t\tALTER\\ TABLE\\ ONLY\\ dump_test\\.test_table\\ ALTER\\ COLUMN\\ col4\\ SET\\ \\(n_distinct\\=10\\)\\;\\n\n\t\t\t)"
+   },
+   {
+      "collation" : false,
+      "create_order" : 110,
+      "create_sql" : "CREATE TABLE dump_test.test_compression_method (\n\t\t\t\t\t\t   col1 text\n\t\t\t\t\t   );",
+      "icu" : false,
+      "name" : "CREATE TABLE test_compression_method",
+      "regexp" : "(?^mx:^\n\t\t\tCREATE\\ TABLE\\ dump_test\\.test_compression_method\\ \\(\\n\n\t\t\t\\s+col1\\ text\\n\n\t\t\t\\)\\;\n\t\t\t)"
+   }
+]

@@ -106,3 +106,6 @@ dhat-heap.json
 
 # pgregress actual output and diffs
 postgres/regress/results/
+
+# pg_dump DDL round-trip check output
+postgres/conformance/pgdump-ddl/results.json
