@@ -787,11 +787,11 @@ pub fn emit_upsert(
             resolver,
             &bt.name,
             new_rowid_reg.unwrap_or(ctx.conflict_rowid_reg),
-            bt.columns().iter().enumerate().filter_map(|(idx, col)| {
-                col.name
-                    .as_deref()
-                    .map(|n| (n, layout.to_register(new_start, idx)))
-            }),
+            bt.columns()
+                .iter()
+                .enumerate()
+                .map(|(idx, col)| (col, layout.to_register(new_start, idx))),
+            bt.is_strict,
             connection,
             ast::ResolveType::Abort,
             ctx.loop_labels.row_done,

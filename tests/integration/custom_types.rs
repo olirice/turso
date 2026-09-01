@@ -438,4 +438,81 @@ mod tests {
         assert_eq!(rows, vec![(4200,)]);
         conn.close().unwrap();
     }
+
+    /// Regression: a CHECK constraint on a custom-typed column evaluated
+    /// against the ENCODED register, where a WHERE clause on the same
+    /// expression evaluates the DECODED value (probed: `WHERE amount < 10`
+    /// answers by the decoded amount). An integer-scaled type therefore
+    /// REJECTED valid rows (`CHECK (amount < 10)` saw 500 for an inserted
+    /// 5), and a text- or blob-encoded type ADMITTED invalid ones (text and
+    /// blob compare greater than any number, so `CHECK (x >= 0)` was
+    /// vacuously true). CHECK now judges the decoded value, as WHERE does.
+    ///
+    /// The tables are deliberately not STRICT: a STRICT table's DDL-time
+    /// type discipline refuses `CHECK (amount >= 0)` outright ("cannot
+    /// compare cents with INTEGER"), so the runtime path under test is only
+    /// reachable on the non-strict spelling.
+    #[test]
+    fn test_check_constraint_sees_the_decoded_custom_type_value() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("custom_types_check.db");
+        let opts = turso_core::DatabaseOpts::new().with_custom_types(true);
+        let db = TempDatabase::new_with_existent_with_opts(&path, opts);
+        let conn = db.connect_limbo();
+
+        conn.execute("CREATE TYPE cents BASE integer ENCODE value * 100 DECODE value / 100")
+            .unwrap();
+        conn.execute(
+            "CREATE TABLE t1(id INTEGER PRIMARY KEY,              amount cents CHECK (amount >= 0 AND amount < 10))",
+        )
+        .unwrap();
+
+        // The reject-valid direction: 5 encodes to 500, and the check used
+        // to judge the 500.
+        conn.execute("INSERT INTO t1 VALUES (1, 5)")
+            .expect("a value inside the CHECK range must insert");
+        let rows: Vec<(i64,)> = conn.exec_rows("SELECT amount FROM t1 WHERE id = 1");
+        assert_eq!(rows, vec![(5,)]);
+
+        // A genuinely invalid value still refuses.
+        let err = conn.execute("INSERT INTO t1 VALUES (2, -3)").unwrap_err();
+        assert!(
+            err.to_string().contains("CHECK constraint failed"),
+            "a value outside the CHECK range must refuse: {err}"
+        );
+
+        // NULL passes a CHECK, as in SQLite and PostgreSQL both.
+        conn.execute("INSERT INTO t1 VALUES (3, NULL)").unwrap();
+
+        // The UPDATE path runs the same emission.
+        conn.execute("UPDATE t1 SET amount = 7 WHERE id = 1")
+            .expect("an in-range UPDATE must pass its CHECK");
+        let err = conn
+            .execute("UPDATE t1 SET amount = -1 WHERE id = 1")
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("CHECK constraint failed"),
+            "an out-of-range UPDATE must refuse: {err}"
+        );
+
+        // The admit-invalid direction: a text-encoded type's stored value
+        // compares greater than any number, so this check passed no matter
+        // what before the decode.
+        conn.execute(
+            "CREATE TYPE tagged BASE text ENCODE 'v' || value DECODE CAST(substr(value, 2) AS INTEGER)",
+        )
+        .unwrap();
+        conn.execute("CREATE TABLE t2(id INTEGER PRIMARY KEY, x tagged CHECK (x >= 0))")
+            .unwrap();
+        conn.execute("INSERT INTO t2 VALUES (1, 4)").unwrap();
+        let err = conn.execute("INSERT INTO t2 VALUES (2, -4)").unwrap_err();
+        assert!(
+            err.to_string().contains("CHECK constraint failed"),
+            "the encoded text compared greater than any number and let every \
+             row through: {err}"
+        );
+        let rows: Vec<(i64,)> = conn.exec_rows("SELECT x FROM t2");
+        assert_eq!(rows, vec![(4,)]);
+        conn.close().unwrap();
+    }
 }

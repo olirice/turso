@@ -8,8 +8,9 @@ use super::{
         update::emit_program_for_update,
     },
     expr::{
-        bind_and_rewrite_expr, emit_table_column, translate_expr, translate_expr_no_constant_opt,
-        walk_expr, BindingBehavior, NoConstantOptReason, WalkControl,
+        bind_and_rewrite_expr, emit_table_column, emit_type_expr, translate_expr,
+        translate_expr_no_constant_opt, walk_expr, BindingBehavior, NoConstantOptReason,
+        WalkControl,
     },
     group_by::GroupByMetadata,
     main_loop::{LeftJoinMetadata, LoopLabels, SemiAntiJoinMetadata},
@@ -2292,7 +2293,8 @@ pub(crate) fn emit_check_constraints<'a>(
     resolver: &mut Resolver,
     table_name: &str,
     rowid_reg: usize,
-    column_mappings: impl Iterator<Item = (&'a str, usize)>,
+    column_mappings: impl Iterator<Item = (&'a Column, usize)>,
+    table_is_strict: bool,
     connection: &Arc<Connection>,
     or_conflict: ResolveType,
     skip_row_label: BranchOffset,
@@ -2302,9 +2304,56 @@ pub(crate) fn emit_check_constraints<'a>(
         return Ok(());
     }
 
-    let column_mappings: Vec<(&str, usize)> = column_mappings.collect();
     let initial_cache_size = resolver.expr_to_reg_cache.len();
     let joined_table = referenced_tables.and_then(|tables| tables.joined_tables().first());
+
+    // A CHECK constraint is written against the value the user supplied, but
+    // by this point a custom-typed column's register already holds the
+    // ENCODED value, prepared for the record. Decode into a scratch register
+    // first -- the same NULL-skipping decode a read emits -- so
+    // `CHECK (amount < 10)` judges the 5 that was inserted, not the 500 that
+    // is stored. Without this an integer-scaled type REJECTS valid rows, and
+    // a blob- or text-encoded type ADMITS invalid ones, because a blob or
+    // text compares greater than any number.
+    let mut column_mappings_decoded: Vec<(&str, usize)> = Vec::new();
+    for (col, register) in column_mappings {
+        let Some(col_name) = col.name.as_deref() else {
+            continue;
+        };
+        let mut check_reg = register;
+        let type_def = resolver
+            .schema()
+            .get_type_def(&col.ty_str, table_is_strict)
+            .cloned();
+        if let Some(type_def) = type_def {
+            if let Some(decode_expr) = type_def.decode() {
+                let decoded = program.alloc_register();
+                program.emit_insn(Insn::Copy {
+                    src_reg: register,
+                    dst_reg: decoded,
+                    extra_amount: 0,
+                });
+                let skip_decode = program.allocate_label();
+                program.emit_insn(Insn::IsNull {
+                    reg: decoded,
+                    target_pc: skip_decode,
+                });
+                emit_type_expr(
+                    program,
+                    decode_expr,
+                    decoded,
+                    decoded,
+                    col,
+                    &type_def,
+                    resolver,
+                )?;
+                program.preassign_label_to_next_insn(skip_decode);
+                check_reg = decoded;
+            }
+        }
+        column_mappings_decoded.push((col_name, check_reg));
+    }
+    let column_mappings = column_mappings_decoded;
 
     // Map rowid aliases to the actual rowid register.
     // We cache both unqualified (Expr::Id) and qualified (Expr::Qualified) forms

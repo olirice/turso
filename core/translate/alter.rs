@@ -677,11 +677,8 @@ fn emit_add_virtual_column_validation(
                 .columns()
                 .iter()
                 .enumerate()
-                .filter_map(|(idx, col)| {
-                    col.name
-                        .as_deref()
-                        .map(|name| (name, dml_ctx.to_column_reg(idx)))
-                }),
+                .map(|(idx, col)| (col, dml_ctx.to_column_reg(idx))),
+            resolved_table.is_strict,
             connection,
             ast::ResolveType::Abort,
             skip_row_label,

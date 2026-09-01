@@ -1739,19 +1739,14 @@ fn emit_update_insns<'a>(
                 &mut t_ctx.resolver,
                 &btree_table.name,
                 effective_rowid_reg,
-                btree_table
-                    .columns()
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(idx, col)| {
-                        col.name.as_deref().map(|n| {
-                            if col.is_rowid_alias() {
-                                (n, effective_rowid_reg)
-                            } else {
-                                (n, layout.to_register(start, idx))
-                            }
-                        })
-                    }),
+                btree_table.columns().iter().enumerate().map(|(idx, col)| {
+                    if col.is_rowid_alias() {
+                        (col, effective_rowid_reg)
+                    } else {
+                        (col, layout.to_register(start, idx))
+                    }
+                }),
+                btree_table.is_strict,
                 connection,
                 or_conflict,
                 skip_row_label,
