@@ -310,8 +310,8 @@ fn make_sort_comparator(
                             .unwrap_or(Ordering::Equal)
                     }
                     (ValueRef::Text(a_text), ValueRef::Text(b_text)) => {
-                        let a_vals = crate::vdbe::array::parse_text_array(a_text);
-                        let b_vals = crate::vdbe::array::parse_text_array(b_text);
+                        let a_vals = crate::vdbe::array::parse_text_array(a_text)?;
+                        let b_vals = crate::vdbe::array::parse_text_array(b_text)?;
                         match (a_vals, b_vals) {
                             (Some(av), Some(bv)) => {
                                 let a_blob = crate::vdbe::array::values_to_record_blob(&av)?;
@@ -2498,7 +2498,7 @@ pub fn op_array_encode(
     // Extract elements from either blob (MakeArray) or text (JSON literal)
     let raw_elements = match val {
         Value::Blob(b) => array_values_from_blob(b).ok(),
-        Value::Text(text) => parse_text_array(text.as_str()),
+        Value::Text(text) => parse_text_array(text.as_str())?,
         _ => None,
     };
     let Some(raw_elements) = raw_elements else {
@@ -2636,6 +2636,14 @@ pub fn op_array_element(
                 .unwrap_or(Value::Null),
             Err(_) => Value::Null,
         },
+        // A text array literal subscripts like every other member of the
+        // array family (parse_text_array is the shared reader, multidim
+        // refusal included); answering NULL here while unnest and the
+        // membership operators read the same text was a silent
+        // inconsistency.
+        Value::Text(text) => crate::vdbe::array::parse_text_array(text.as_str())?
+            .and_then(|elements| elements.into_iter().nth(idx))
+            .unwrap_or(Value::Null),
         _ => Value::Null,
     };
 
@@ -2654,7 +2662,7 @@ pub fn op_array_length(
     load_insn!(ArrayLength { reg, dest }, insn);
 
     let val = state.registers[*reg].get_value();
-    match compute_array_length(val) {
+    match compute_array_length(val)? {
         Some(count) => state.registers[*dest].set_int(count),
         None => state.registers[*dest].set_null(),
     };
@@ -10667,13 +10675,13 @@ pub fn op_function(
                 check_arg_count!(arg_count, 2);
                 let arr_val = state.registers[*start_reg].get_value().clone();
                 let target = state.registers[*start_reg + 1].get_value().clone();
-                state.registers[*dest].set_value(exec_array_contains(&arr_val, &target));
+                state.registers[*dest].set_value(exec_array_contains(&arr_val, &target)?);
             }
             ScalarFunc::ArrayPosition => {
                 check_arg_count!(arg_count, 2);
                 let arr_val = state.registers[*start_reg].get_value().clone();
                 let target = state.registers[*start_reg + 1].get_value().clone();
-                state.registers[*dest].set_value(exec_array_position(&arr_val, &target));
+                state.registers[*dest].set_value(exec_array_position(&arr_val, &target)?);
             }
             ScalarFunc::ArrayLength => {
                 // 1-arg form: equivalent to `array_length(arr, 1)`. 2-arg form
@@ -10689,7 +10697,7 @@ pub fn op_function(
                 } else {
                     1
                 };
-                match compute_array_length_at_dim(arr_val, dim) {
+                match compute_array_length_at_dim(arr_val, dim)? {
                     Some(count) => state.registers[*dest].set_int(count),
                     None => state.registers[*dest].set_null(),
                 };
@@ -10728,19 +10736,19 @@ pub fn op_function(
                     &arr_val,
                     &delimiter,
                     null_str.as_ref(),
-                ));
+                )?);
             }
             ScalarFunc::ArrayOverlap => {
                 check_arg_count!(arg_count, 2);
                 let a_val = state.registers[*start_reg].get_value().clone();
                 let b_val = state.registers[*start_reg + 1].get_value().clone();
-                state.registers[*dest].set_value(exec_array_overlap(&a_val, &b_val));
+                state.registers[*dest].set_value(exec_array_overlap(&a_val, &b_val)?);
             }
             ScalarFunc::ArrayContainsAll => {
                 check_arg_count!(arg_count, 2);
                 let a_val = state.registers[*start_reg].get_value().clone();
                 let b_val = state.registers[*start_reg + 1].get_value().clone();
-                state.registers[*dest].set_value(exec_array_contains_all(&a_val, &b_val));
+                state.registers[*dest].set_value(exec_array_contains_all(&a_val, &b_val)?);
             }
             ScalarFunc::StructPack
             | ScalarFunc::StructExtractFunc

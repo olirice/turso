@@ -3,7 +3,72 @@ use std::fmt::Write;
 
 use crate::numeric::Numeric;
 use crate::types::{ImmutableRecord, Value, ValueIterator};
-use crate::Result;
+use crate::{LimboError, Result};
+
+/// The wire tag an array-membership coercion refusal carries, so a schema
+/// dialect can recognize the family (`= ANY`/`@>`/`<@`/`&&`/
+/// `array_position`) without sniffing free text: the refusal message is
+/// `{MARKER}{human text}` inside a `LimboError::Constraint`. Core has no
+/// structured error code of its own to attach, the same constraint that
+/// shaped compiled triggers' RAISE tagging.
+pub const ARRAY_ANY_COERCION_MARKER: &str = "\u{1}array-any-coercion\u{1}";
+
+fn coercion_refusal(message: impl std::fmt::Display) -> LimboError {
+    LimboError::Constraint(format!("{ARRAY_ANY_COERCION_MARKER}{message}"))
+}
+
+/// Coerce every array element to the probe's value class before the
+/// membership family compares anything, refusing loudly where PostgreSQL's
+/// own input functions would: a text element against a numeric probe
+/// becomes a number (`id = ANY('{"1","3"}')` used to silently match
+/// nothing) or refuses on the WHOLE array -- PostgreSQL parses the literal
+/// before matching, so `'{"1","x"}'` errors even though `"1"` alone would
+/// have matched. A numeric element against a text probe compares as text,
+/// which is how PostgreSQL types the same untyped literal. A blob on
+/// exactly one side has no comparison at all and refuses loudly.
+fn coerce_elements_for_probe(elements: Vec<Value>, probe: &Value) -> Result<Vec<Value>> {
+    let mismatch = || {
+        coercion_refusal(
+            "array element type does not match the comparison value's type on this \
+             engine build; cast the array to the column's array type",
+        )
+    };
+    elements
+        .into_iter()
+        .map(|element| {
+            Ok(match (&element, probe) {
+                (Value::Null, _) | (_, Value::Null) => element,
+                (Value::Numeric(_), Value::Numeric(_))
+                | (Value::Text(_), Value::Text(_))
+                | (Value::Blob(_), Value::Blob(_)) => element,
+                (Value::Text(t), Value::Numeric(_)) => coerce_text_to_numeric(t.as_str())?,
+                (Value::Numeric(n), Value::Text(_)) => Value::build_text(numeric_as_text(n)),
+                (Value::Blob(_), _) | (_, Value::Blob(_)) => return Err(mismatch()),
+            })
+        })
+        .collect()
+}
+
+fn coerce_text_to_numeric(text: &str) -> Result<Value> {
+    if let Ok(i) = text.trim().parse::<i64>() {
+        return Ok(Value::from_i64(i));
+    }
+    if let Ok(f) = text.trim().parse::<f64>() {
+        if f.is_finite() {
+            return Ok(Value::from_f64(f));
+        }
+    }
+    Err(coercion_refusal(format!(
+        "invalid input syntax for type numeric: \"{text}\""
+    )))
+}
+
+fn numeric_as_text(n: &Numeric) -> String {
+    match n {
+        Numeric::Integer(i) => i.to_string(),
+        Numeric::Float(f) => f64::from(*f).to_string(),
+    }
+}
 
 /// Extract values from a record-format array blob.
 /// Returns Err if the blob is not a valid record.
@@ -28,33 +93,33 @@ pub(crate) fn array_values_from_blob(blob: &[u8]) -> Result<Vec<Value>> {
 /// (`array_positions`) all need to iterate, parse, render, or construct
 /// an array from outside this crate, and the record blob format is
 /// deliberately private in every other respect.
-pub fn array_values_from_any(arr: &Value) -> Option<Vec<Value>> {
-    match arr {
+pub fn array_values_from_any(arr: &Value) -> Result<Option<Vec<Value>>> {
+    Ok(match arr {
         Value::Blob(blob) => array_values_from_blob(blob).ok(),
-        Value::Text(text) => parse_text_array(text.as_str()),
+        Value::Text(text) => parse_text_array(text.as_str())?,
         Value::Null => Some(Vec::new()),
         _ => None,
-    }
+    })
 }
 
 /// Parse a text array literal in PG format `{1, hello, NULL}` into a Vec<Value>.
 /// Handles integers, floats, strings (quoted and unquoted), and NULL.
-pub fn parse_text_array(text: &str) -> Option<Vec<Value>> {
+pub fn parse_text_array(text: &str) -> Result<Option<Vec<Value>>> {
     let text = text.trim();
     if text.starts_with('{') && text.ends_with('}') {
         return parse_pg_text_array(text);
     }
-    None
+    Ok(None)
 }
 
 /// Parse a PG-style text array like `{1, hello, NULL, 3.14}` into a Vec<Value>.
 /// Unquoted `NULL` (case-insensitive) → Value::Null.
 /// Quoted strings use `"..."` with `\"` and `\\` escapes.
 /// Unquoted tokens are parsed as integer, then float, then text.
-fn parse_pg_text_array(text: &str) -> Option<Vec<Value>> {
+fn parse_pg_text_array(text: &str) -> Result<Option<Vec<Value>>> {
     let inner = text[1..text.len() - 1].trim();
     if inner.is_empty() {
-        return Some(Vec::new());
+        return Ok(Some(Vec::new()));
     }
     let bytes = inner.as_bytes();
     let mut pos = 0;
@@ -69,19 +134,39 @@ fn parse_pg_text_array(text: &str) -> Option<Vec<Value>> {
             break;
         }
 
+        if bytes[pos] == b'{' {
+            // A nested brace is a multidimensional array literal, which the
+            // flat array model cannot represent. Anything but a refusal here
+            // is a silent wrong answer: the old tokenizer read `{1` as a
+            // TEXT element, so `2 = ANY('{{1,2},{3,4}}')` matched nothing
+            // and an INSERT stored garbage elements. The one exception is
+            // an all-empty nesting (`{ {} }`, `{{},{}}`): PostgreSQL says
+            // the empty array has no dimensions at all and answers `{}`
+            // for every such spelling (probed on 17.7).
+            if inner
+                .chars()
+                .all(|c| c == '{' || c == '}' || c == ',' || c.is_whitespace())
+            {
+                return Ok(Some(Vec::new()));
+            }
+            return Err(LimboError::Constraint(
+                "multidimensional array literals are not supported on this engine build"
+                    .to_string(),
+            ));
+        }
         if bytes[pos] == b'"' {
             // Quoted string
             pos += 1;
             let mut s = String::new();
             loop {
                 if pos >= bytes.len() {
-                    return None;
+                    return Ok(None);
                 }
                 match bytes[pos] {
                     b'\\' => {
                         pos += 1;
                         if pos >= bytes.len() {
-                            return None;
+                            return Ok(None);
                         }
                         match bytes[pos] {
                             b'n' => s.push('\n'),
@@ -118,7 +203,7 @@ fn parse_pg_text_array(text: &str) -> Option<Vec<Value>> {
                 elements.push(Value::from_i64(i));
             } else if let Ok(f) = token.parse::<f64>() {
                 if !f.is_finite() {
-                    return None; // reject Infinity and NaN
+                    return Ok(None); // reject Infinity and NaN
                 }
                 elements.push(Value::from_f64(f));
             } else {
@@ -141,14 +226,14 @@ fn parse_pg_text_array(text: &str) -> Option<Vec<Value>> {
                 peek += 1;
             }
             if peek >= bytes.len() {
-                return None; // trailing comma
+                return Ok(None); // trailing comma
             }
         } else if pos < bytes.len() {
-            return None;
+            return Ok(None);
         }
     }
 
-    Some(elements)
+    Ok(Some(elements))
 }
 
 /// Pack values into a record-format array blob.
@@ -246,16 +331,16 @@ fn write_pg_text_element(result: &mut String, s: &str) {
 /// Compute the number of elements in an array value. Shared by
 /// op_array_length (instruction) and ScalarFunc::ArrayLength (function).
 /// Returns None for NULL or non-blob input (maps to SQL NULL).
-pub(crate) fn compute_array_length(val: &Value) -> Option<i64> {
-    match val {
+pub(crate) fn compute_array_length(val: &Value) -> Result<Option<i64>> {
+    Ok(match val {
         Value::Null => None,
         Value::Blob(b) => match ValueIterator::new(b) {
             Ok(iter) => Some(iter.count() as i64),
             Err(_) => None,
         },
-        Value::Text(t) => parse_text_array(t.as_str()).map(|v| v.len() as i64),
+        Value::Text(t) => parse_text_array(t.as_str())?.map(|v| v.len() as i64),
         _ => None,
-    }
+    })
 }
 
 /// Compute the element count at array dimension `dim` (1-based). For `dim == 1`,
@@ -269,9 +354,9 @@ pub(crate) fn compute_array_length(val: &Value) -> Option<i64> {
 /// `array_length(arr, dim)` contract — except Turso doesn't track per-
 /// dimension lower bounds, so `array_upper(arr, dim)` equals this function
 /// for all valid `dim`.
-pub(crate) fn compute_array_length_at_dim(val: &Value, dim: i64) -> Option<i64> {
+pub(crate) fn compute_array_length_at_dim(val: &Value, dim: i64) -> Result<Option<i64>> {
     if dim < 1 {
-        return None;
+        return Ok(None);
     }
     if dim == 1 {
         return compute_array_length(val);
@@ -279,12 +364,14 @@ pub(crate) fn compute_array_length_at_dim(val: &Value, dim: i64) -> Option<i64> 
     // dim > 1: peek into element zero and recurse. Uniform-shape arrays let
     // us answer "length at depth N" by looking at any element at depth 1;
     // element zero is the cheapest to extract.
-    let first = array_values_from_any(val)?.into_iter().next()?;
+    let Some(first) = array_values_from_any(val)?.and_then(|v| v.into_iter().next()) else {
+        return Ok(None);
+    };
     compute_array_length_at_dim(&first, dim - 1)
 }
 
 pub(crate) fn exec_array_append(arr: &Value, elem: &Value) -> Result<Value> {
-    let Some(mut elements) = array_values_from_any(arr) else {
+    let Some(mut elements) = array_values_from_any(arr)? else {
         return Ok(Value::Null);
     };
     elements.push(elem.clone());
@@ -292,7 +379,7 @@ pub(crate) fn exec_array_append(arr: &Value, elem: &Value) -> Result<Value> {
 }
 
 pub(crate) fn exec_array_prepend(arr: &Value, elem: &Value) -> Result<Value> {
-    let Some(elements) = array_values_from_any(arr) else {
+    let Some(elements) = array_values_from_any(arr)? else {
         return Ok(Value::Null);
     };
     // Build new vec with elem first — avoids O(n) shift from Vec::insert(0, ...)
@@ -306,10 +393,10 @@ pub(crate) fn exec_array_cat(a: &Value, b: &Value) -> Result<Value> {
     if matches!(a, Value::Null) || matches!(b, Value::Null) {
         return Ok(Value::Null);
     }
-    let Some(mut elems_a) = array_values_from_any(a) else {
+    let Some(mut elems_a) = array_values_from_any(a)? else {
         return Ok(Value::Null);
     };
-    let Some(elems_b) = array_values_from_any(b) else {
+    let Some(elems_b) = array_values_from_any(b)? else {
         return Ok(Value::Null);
     };
     elems_a.extend(elems_b);
@@ -320,47 +407,53 @@ pub(crate) fn exec_array_remove(arr: &Value, target: &Value) -> Result<Value> {
     if matches!(arr, Value::Null) {
         return Ok(Value::Null);
     }
-    let Some(elements) = array_values_from_any(arr) else {
+    let Some(elements) = array_values_from_any(arr)? else {
         return Ok(Value::Null);
     };
     let result: Vec<Value> = elements.into_iter().filter(|e| e != target).collect();
     values_to_record_blob(&result)
 }
 
-pub(crate) fn exec_array_contains(arr: &Value, target: &Value) -> Value {
+pub(crate) fn exec_array_contains(arr: &Value, target: &Value) -> Result<Value> {
     if matches!(arr, Value::Null) {
-        return Value::Null;
+        return Ok(Value::Null);
     }
     if let Value::Blob(blob) = arr {
-        return array_find_streaming(blob, |vref| vref == *target)
+        return Ok(array_find_streaming(blob, |vref| vref == *target)
             .map(|_| Value::from_i64(1))
-            .unwrap_or_else(|| Value::from_i64(0));
+            .unwrap_or_else(|| Value::from_i64(0)));
     }
-    let Some(elements) = array_values_from_any(arr) else {
-        return Value::Null;
+    let Some(elements) = array_values_from_any(arr)? else {
+        return Ok(Value::Null);
     };
+    let elements = coerce_elements_for_probe(elements, target)?;
     let found = elements.iter().any(|e| e == target);
-    Value::from_i64(found as i64)
+    Ok(Value::from_i64(found as i64))
 }
 
-pub(crate) fn exec_array_position(arr: &Value, target: &Value) -> Value {
+pub(crate) fn exec_array_position(arr: &Value, target: &Value) -> Result<Value> {
     if matches!(arr, Value::Null) {
-        return Value::Null;
+        return Ok(Value::Null);
     }
     if let Value::Blob(blob) = arr {
-        return array_find_streaming(blob, |vref| vref == *target)
+        return Ok(array_find_streaming(blob, |vref| vref == *target)
             .map(|i| Value::from_i64(i as i64 + 1)) // 1-based (PG convention)
-            .unwrap_or(Value::Null);
+            .unwrap_or(Value::Null));
     }
-    let Some(elements) = array_values_from_any(arr) else {
-        return Value::Null;
+    let Some(elements) = array_values_from_any(arr)? else {
+        return Ok(Value::Null);
     };
+    let elements = coerce_elements_for_probe(elements, target)?;
+    // `array_position` compares with IS NOT DISTINCT FROM (probed on 17.7:
+    // a NULL probe finds a NULL element), which plain Value equality
+    // already answers -- unlike the containment operators below, whose
+    // element-equality semantics can never find a NULL.
     for (i, elem) in elements.iter().enumerate() {
         if elem == target {
-            return Value::from_i64(i as i64 + 1); // 1-based (PG convention)
+            return Ok(Value::from_i64(i as i64 + 1)); // 1-based (PG convention)
         }
     }
-    Value::Null
+    Ok(Value::Null)
 }
 
 /// Stream through a record-format blob, calling `predicate` on each element.
@@ -384,7 +477,7 @@ pub(crate) fn exec_array_slice(arr: &Value, start: &Value, end: &Value) -> Resul
     if matches!(arr, Value::Null) {
         return Ok(Value::Null);
     }
-    let Some(elements) = array_values_from_any(arr) else {
+    let Some(elements) = array_values_from_any(arr)? else {
         return Ok(Value::Null);
     };
     // PG convention: 1-based inclusive bounds
@@ -474,14 +567,14 @@ pub(crate) fn exec_array_to_string(
     arr: &Value,
     delimiter: &Value,
     null_str: Option<&Value>,
-) -> Value {
+) -> Result<Value> {
     if matches!(arr, Value::Null) {
-        return Value::Null;
+        return Ok(Value::Null);
     }
 
     let delim = match delimiter {
         Value::Text(t) => t.as_str().to_string(),
-        Value::Null => return Value::Null,
+        Value::Null => return Ok(Value::Null),
         other => other.to_string(),
     };
 
@@ -498,7 +591,7 @@ pub(crate) fn exec_array_to_string(
             let mut first = true;
             for vref in iter {
                 let Ok(vref) = vref else {
-                    return Value::Null;
+                    return Ok(Value::Null);
                 };
                 let part = match &vref {
                     crate::ValueRef::Null => {
@@ -517,12 +610,12 @@ pub(crate) fn exec_array_to_string(
                 result.push_str(&part);
                 first = false;
             }
-            return Value::build_text(result);
+            return Ok(Value::build_text(result));
         }
     }
 
-    let Some(elements) = array_values_from_any(arr) else {
-        return Value::Null;
+    let Some(elements) = array_values_from_any(arr)? else {
+        return Ok(Value::Null);
     };
 
     let mut result = String::new();
@@ -546,45 +639,98 @@ pub(crate) fn exec_array_to_string(
         first = false;
     }
 
-    Value::build_text(result)
+    Ok(Value::build_text(result))
 }
 
 /// Check if two arrays have any elements in common.
 /// Returns 1 if they share at least one element, 0 otherwise.
 /// NULL if either input is not a valid array.
-pub(crate) fn exec_array_overlap(a: &Value, b: &Value) -> Value {
+pub(crate) fn exec_array_overlap(a: &Value, b: &Value) -> Result<Value> {
     if matches!(a, Value::Null) || matches!(b, Value::Null) {
-        return Value::Null;
+        return Ok(Value::Null);
     }
-    let Some(elems_a) = array_values_from_any(a) else {
-        return Value::Null;
+    let Some(elems_a) = array_values_from_any(a)? else {
+        return Ok(Value::Null);
     };
-    let Some(elems_b) = array_values_from_any(b) else {
-        return Value::Null;
+    let Some(elems_b) = array_values_from_any(b)? else {
+        return Ok(Value::Null);
     };
+    let (elems_a, elems_b) = coerce_sides(elems_a, elems_b)?;
     // O(n log n + m log n) via BTreeSet instead of O(n*m)
     let set: BTreeSet<&Value> = elems_a.iter().collect();
-    let found = elems_b.iter().any(|eb| set.contains(eb));
-    Value::from_i64(found as i64)
+    let found = elems_b
+        .iter()
+        .any(|eb| !matches!(eb, Value::Null) && set.contains(eb));
+    Ok(Value::from_i64(found as i64))
 }
 
 /// Check if array `a` contains all elements of array `b` (@> operator).
 /// Returns 1 if every element in `b` appears in `a`, 0 otherwise.
 /// NULL if either input is not a valid array.
-pub(crate) fn exec_array_contains_all(a: &Value, b: &Value) -> Value {
+pub(crate) fn exec_array_contains_all(a: &Value, b: &Value) -> Result<Value> {
     if matches!(a, Value::Null) || matches!(b, Value::Null) {
-        return Value::Null;
+        return Ok(Value::Null);
     }
-    let Some(elems_a) = array_values_from_any(a) else {
-        return Value::Null;
+    let Some(elems_a) = array_values_from_any(a)? else {
+        return Ok(Value::Null);
     };
-    let Some(elems_b) = array_values_from_any(b) else {
-        return Value::Null;
+    let Some(elems_b) = array_values_from_any(b)? else {
+        return Ok(Value::Null);
     };
-    // O(n log n + m log n) via BTreeSet instead of O(n*m)
+    let (elems_a, elems_b) = coerce_sides(elems_a, elems_b)?;
+    // O(n log n + m log n) via BTreeSet instead of O(n*m). `@>` is built on
+    // the element type's equality operator and `NULL = NULL` is unknown, so
+    // a NULL element in `b` can never be found (probed on 17.7): it makes
+    // containment FALSE, never vacuously true.
     let set: BTreeSet<&Value> = elems_a.iter().collect();
-    let all_found = elems_b.iter().all(|eb| set.contains(eb));
-    Value::from_i64(all_found as i64)
+    let all_found = elems_b
+        .iter()
+        .all(|eb| !matches!(eb, Value::Null) && set.contains(eb));
+    Ok(Value::from_i64(all_found as i64))
+}
+
+/// The two-array analogue of [`coerce_elements_for_probe`]: when one side
+/// is numeric-bearing and the other text-bearing, every text element on
+/// both sides coerces to a number (refusing loudly on the whole statement
+/// where PostgreSQL's input functions would); a blob on one side against
+/// text or numeric on the other refuses outright. Same-class inputs pass
+/// through untouched.
+fn coerce_sides(a: Vec<Value>, b: Vec<Value>) -> Result<(Vec<Value>, Vec<Value>)> {
+    fn classes(values: &[Value]) -> (bool, bool, bool) {
+        let mut c = (false, false, false);
+        for v in values {
+            match v {
+                Value::Numeric(_) => c.0 = true,
+                Value::Text(_) => c.1 = true,
+                Value::Blob(_) => c.2 = true,
+                _ => {}
+            }
+        }
+        c
+    }
+    let ca = classes(&a);
+    let cb = classes(&b);
+    let blob_mix = (ca.2 && (cb.0 || cb.1)) || (cb.2 && (ca.0 || ca.1));
+    if blob_mix {
+        return Err(coercion_refusal(
+            "array element type does not match the other array's element type on this \
+             engine build; cast both arrays to the same array type",
+        ));
+    }
+    let numeric_text_mix = (ca.0 && cb.1) || (ca.1 && cb.0);
+    if !numeric_text_mix {
+        return Ok((a, b));
+    }
+    let coerce = |values: Vec<Value>| -> Result<Vec<Value>> {
+        values
+            .into_iter()
+            .map(|v| match v {
+                Value::Text(t) => coerce_text_to_numeric(t.as_str()),
+                other => Ok(other),
+            })
+            .collect()
+    };
+    Ok((coerce(a)?, coerce(b)?))
 }
 
 /// Collect values from contiguous registers into a record-format array blob.
@@ -629,7 +775,7 @@ mod tests {
     #[test]
     fn test_parse_text_array_multibyte_utf8() {
         let input = r#"{"café","naïve","über"}"#;
-        let result = parse_text_array(input).unwrap();
+        let result = parse_text_array(input).unwrap().unwrap();
         assert_eq!(result.len(), 3);
         assert_eq!(result[0], Value::build_text("café"));
         assert_eq!(result[1], Value::build_text("naïve"));
@@ -639,7 +785,7 @@ mod tests {
     #[test]
     fn test_parse_text_array_emoji() {
         let input = r#"{"hello 🌍","test 🚀"}"#;
-        let result = parse_text_array(input).unwrap();
+        let result = parse_text_array(input).unwrap().unwrap();
         assert_eq!(result.len(), 2);
         assert_eq!(result[0], Value::build_text("hello 🌍"));
         assert_eq!(result[1], Value::build_text("test 🚀"));
@@ -648,7 +794,7 @@ mod tests {
     #[test]
     fn test_parse_text_array_cjk() {
         let input = r#"{"你好","世界"}"#;
-        let result = parse_text_array(input).unwrap();
+        let result = parse_text_array(input).unwrap().unwrap();
         assert_eq!(result.len(), 2);
         assert_eq!(result[0], Value::build_text("你好"));
         assert_eq!(result[1], Value::build_text("世界"));
@@ -656,18 +802,18 @@ mod tests {
 
     #[test]
     fn test_compute_array_length_null_returns_none() {
-        assert_eq!(compute_array_length(&Value::Null), None);
+        assert_eq!(compute_array_length(&Value::Null).unwrap(), None);
     }
 
     #[test]
     fn test_compute_array_length_valid_array() {
         let blob = values_to_record_blob(&[Value::from_i64(1), Value::from_i64(2)]).unwrap();
-        assert_eq!(compute_array_length(&blob), Some(2));
+        assert_eq!(compute_array_length(&blob).unwrap(), Some(2));
     }
 
     #[test]
     fn test_compute_array_length_non_blob_returns_none() {
-        assert_eq!(compute_array_length(&Value::from_i64(42)), None,);
+        assert_eq!(compute_array_length(&Value::from_i64(42)).unwrap(), None,);
     }
 
     #[test]
@@ -694,7 +840,7 @@ mod tests {
     #[test]
     fn test_array_contains_null_array_returns_null() {
         assert_eq!(
-            exec_array_contains(&Value::Null, &Value::from_i64(1)),
+            exec_array_contains(&Value::Null, &Value::from_i64(1)).unwrap(),
             Value::Null,
         );
     }
@@ -702,7 +848,7 @@ mod tests {
     #[test]
     fn test_array_position_null_array_returns_null() {
         assert_eq!(
-            exec_array_position(&Value::Null, &Value::from_i64(1)),
+            exec_array_position(&Value::Null, &Value::from_i64(1)).unwrap(),
             Value::Null,
         );
     }
@@ -711,26 +857,26 @@ mod tests {
     fn test_compute_array_length_invalid_blob_returns_none() {
         // A random blob that is not a valid record should return None
         let invalid = Value::from_slice(&[0xFF, 0xFE, 0xFD]).expect(crate::alloc::ALLOC_ERR_MSG);
-        assert_eq!(compute_array_length(&invalid), None);
+        assert_eq!(compute_array_length(&invalid).unwrap(), None);
     }
 
     #[test]
     fn test_parse_text_array_rejects_json_format() {
         // JSON [1,2,3] format is no longer accepted — only PG {1,2,3}
-        assert!(parse_text_array("[1,2,3]").is_none());
-        assert!(parse_text_array(r#"["hello"]"#).is_none());
+        assert!(parse_text_array("[1,2,3]").unwrap().is_none());
+        assert!(parse_text_array(r#"["hello"]"#).unwrap().is_none());
     }
 
     #[test]
     fn test_parse_text_array_rejects_trailing_comma() {
-        assert!(parse_text_array("{1,2,}").is_none());
-        assert!(parse_text_array("{1, 2, }").is_none());
+        assert!(parse_text_array("{1,2,}").unwrap().is_none());
+        assert!(parse_text_array("{1, 2, }").unwrap().is_none());
     }
 
     #[test]
     fn test_parse_text_array_rejects_infinity() {
-        assert!(parse_text_array("{1e309}").is_none());
-        assert!(parse_text_array("{-1e309}").is_none());
+        assert!(parse_text_array("{1e309}").unwrap().is_none());
+        assert!(parse_text_array("{-1e309}").unwrap().is_none());
     }
 
     #[test]
@@ -755,11 +901,11 @@ mod tests {
         ])
         .unwrap();
         assert_eq!(
-            exec_array_contains(&arr, &Value::from_i64(20)),
+            exec_array_contains(&arr, &Value::from_i64(20)).unwrap(),
             Value::from_i64(1)
         );
         assert_eq!(
-            exec_array_contains(&arr, &Value::from_i64(99)),
+            exec_array_contains(&arr, &Value::from_i64(99)).unwrap(),
             Value::from_i64(0)
         );
     }
@@ -774,10 +920,13 @@ mod tests {
         .unwrap();
         // 1-based: element 20 is at position 2
         assert_eq!(
-            exec_array_position(&arr, &Value::from_i64(20)),
+            exec_array_position(&arr, &Value::from_i64(20)).unwrap(),
             Value::from_i64(2)
         );
-        assert_eq!(exec_array_position(&arr, &Value::from_i64(99)), Value::Null);
+        assert_eq!(
+            exec_array_position(&arr, &Value::from_i64(99)).unwrap(),
+            Value::Null
+        );
     }
 
     #[test]
@@ -852,5 +1001,113 @@ mod tests {
         assert_eq!(elements[0], Value::from_i64(1));
         assert_eq!(elements[1], Value::build_text("two"));
         assert_eq!(elements[2], Value::from_i64(3));
+    }
+
+    #[test]
+    fn a_multidimensional_text_literal_refuses_loudly() {
+        // The flat model cannot represent it; the old tokenizer read `{1`
+        // as a text element and every membership check silently missed.
+        let err = parse_text_array("{{1,2},{3,4}}").unwrap_err();
+        assert!(
+            err.to_string().contains("multidimensional"),
+            "expected the multidimensional refusal, got: {err}"
+        );
+        let err = exec_array_contains(&Value::build_text("{{1,2},{3,4}}"), &Value::from_i64(2))
+            .unwrap_err();
+        assert!(err.to_string().contains("multidimensional"));
+    }
+
+    #[test]
+    fn quoted_text_elements_coerce_to_a_numeric_probe() {
+        // `id = ANY('{"1","3"}')` used to silently match nothing: the text
+        // element never equaled the integer probe.
+        let arr = Value::build_text(r#"{"1","3"}"#);
+        assert_eq!(
+            exec_array_contains(&arr, &Value::from_i64(3)).unwrap(),
+            Value::from_i64(1)
+        );
+        assert_eq!(
+            exec_array_contains(&arr, &Value::from_i64(2)).unwrap(),
+            Value::from_i64(0)
+        );
+        assert_eq!(
+            exec_array_position(&arr, &Value::from_i64(3)).unwrap(),
+            Value::from_i64(2)
+        );
+    }
+
+    #[test]
+    fn an_unparseable_text_element_refuses_the_whole_array() {
+        // PostgreSQL parses the literal before matching, so `{"1","x"}`
+        // errors even though "1" alone would have matched.
+        let arr = Value::build_text(r#"{"1","x"}"#);
+        let err = exec_array_contains(&arr, &Value::from_i64(1)).unwrap_err();
+        assert!(
+            err.to_string().contains(ARRAY_ANY_COERCION_MARKER)
+                && err.to_string().contains("invalid input syntax"),
+            "expected the marked coercion refusal, got: {err}"
+        );
+    }
+
+    #[test]
+    fn a_blob_probe_against_text_elements_refuses_loudly() {
+        let arr = Value::build_text("{a,b}");
+        let probe = Value::from_slice(&[1, 2, 3]).expect(crate::alloc::ALLOC_ERR_MSG);
+        let err = exec_array_contains(&arr, &probe).unwrap_err();
+        assert!(err.to_string().contains(ARRAY_ANY_COERCION_MARKER));
+    }
+
+    #[test]
+    fn mixed_class_overlap_coerces_or_refuses() {
+        let nums = values_to_record_blob(&[Value::from_i64(1), Value::from_i64(2)]).unwrap();
+        let texts = Value::build_text(r#"{"2","5"}"#);
+        assert_eq!(
+            exec_array_overlap(&nums, &texts).unwrap(),
+            Value::from_i64(1)
+        );
+        let bad = Value::build_text(r#"{"2","x"}"#);
+        assert!(exec_array_overlap(&nums, &bad).is_err());
+    }
+
+    #[test]
+    fn an_all_empty_nesting_is_the_empty_array() {
+        // PostgreSQL: the empty array has no dimensions at all, so no
+        // spelling of it is refused as multidimensional (probed on 17.7:
+        // `{ {} }`::int[] answers {}).
+        assert_eq!(
+            parse_text_array("{ {} }").unwrap().unwrap(),
+            Vec::<Value>::new()
+        );
+        assert_eq!(
+            parse_text_array("{{},{}}").unwrap().unwrap(),
+            Vec::<Value>::new()
+        );
+    }
+
+    #[test]
+    fn null_semantics_match_postgres() {
+        // array_position compares IS NOT DISTINCT FROM: a NULL probe finds
+        // a NULL element (probed on 17.7).
+        let arr = Value::build_text("{a,NULL,c}");
+        assert_eq!(
+            exec_array_position(&arr, &Value::Null).unwrap(),
+            Value::from_i64(2)
+        );
+        // @> is built on element equality and NULL = NULL is unknown, so a
+        // NULL element in the contained side is NEVER found.
+        let a = values_to_record_blob(&[Value::from_i64(1), Value::from_i64(2)]).unwrap();
+        let b = values_to_record_blob(&[Value::Null]).unwrap();
+        assert_eq!(exec_array_contains_all(&a, &b).unwrap(), Value::from_i64(0));
+        // ...not even when the containing side holds a NULL of its own.
+        let a_with_null = values_to_record_blob(&[Value::from_i64(1), Value::Null]).unwrap();
+        assert_eq!(
+            exec_array_contains_all(&a_with_null, &b).unwrap(),
+            Value::from_i64(0)
+        );
+        // && never matches through NULLs either.
+        assert_eq!(
+            exec_array_overlap(&a_with_null, &b).unwrap(),
+            Value::from_i64(0)
+        );
     }
 }

@@ -587,4 +587,24 @@ mod tests {
         assert_eq!(rows, vec![("2.7500000000000000".to_string(),)]);
         conn.close().unwrap();
     }
+
+    /// A text array literal subscripts like every other member of the array
+    /// family: `('{5,7}')[2]` is 7, one past the end is NULL, and a
+    /// multidimensional literal refuses the same way the family's other
+    /// readers do. Answering NULL for every text input (the old behavior)
+    /// silently broke `confkey[ord]`-style catalog pairing.
+    #[test]
+    fn test_text_array_literal_subscripts_like_the_family() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("text_subscript.db");
+        let opts = turso_core::DatabaseOpts::new().with_custom_types(true);
+        let db = TempDatabase::new_with_existent_with_opts(&path, opts);
+        let conn = db.connect_limbo();
+        let rows: Vec<(i64, i64)> =
+            conn.exec_rows("SELECT ('{5,7}')[2], coalesce(('{5,7}')[3], -1)");
+        assert_eq!(rows, vec![(7, -1)], "in-range subscripts answer, out-of-range is NULL");
+        let err = conn.execute("SELECT ('{{1},{2}}')[1]").unwrap_err();
+        assert!(err.to_string().contains("multidimensional"));
+        conn.close().unwrap();
+    }
 }

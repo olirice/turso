@@ -100,6 +100,7 @@ pub use function::MathFunc;
 pub use functions::printf::{exec_printf_values, printf_c_arg_plan, PrintfCArg};
 pub use vdbe::array::{
     array_values_from_any, parse_text_array, serialize_array_from_blob, values_to_record_blob,
+    ARRAY_ANY_COERCION_MARKER,
 };
 
 use crate::{
