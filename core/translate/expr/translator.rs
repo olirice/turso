@@ -583,6 +583,17 @@ pub fn translate_expr(
                             target_register,
                             resolver,
                         )?;
+                        // Close the constant span this early return would
+                        // otherwise leave OPEN: an unclosed span swallows
+                        // whatever the caller emits next (a scalar
+                        // subquery's result copy and LIMIT decrement, in
+                        // the reproduced case) into the constant-hoist
+                        // region, which runs before the subroutine
+                        // initializes the LIMIT counter -- "datatype
+                        // mismatch" on `SELECT (SELECT CAST(x AS jsonb))`.
+                        if let Some(span) = constant_span {
+                            program.constant_span_end(span);
+                        }
                         return Ok(target_register);
                     }
 
@@ -616,6 +627,11 @@ pub fn translate_expr(
                                 type_def,
                                 resolver,
                             )?;
+                        }
+                        // See the domain arm above: the span must close on
+                        // this early return too.
+                        if let Some(span) = constant_span {
+                            program.constant_span_end(span);
                         }
                         return Ok(target_register);
                     }

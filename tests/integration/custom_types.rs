@@ -411,4 +411,31 @@ mod tests {
             "LEFT JOIN on custom type column should find matches and produce NULLs for non-matches"
         );
     }
+
+    /// Regression: a CAST to a custom type inside an uncorrelated scalar
+    /// subquery. The cast's early-return path used to leave its constant
+    /// span open, so the subquery's result copy and LIMIT decrement were
+    /// swallowed into the constant-hoist region and ran before the
+    /// subroutine initialized the LIMIT counter: "datatype mismatch" on
+    /// `SELECT (SELECT CAST('{"a":1}' AS jsonb))` with the built-in jsonb.
+    #[test]
+    fn test_custom_type_cast_inside_scalar_subquery() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("custom_cast_subquery.db");
+        let opts = turso_core::DatabaseOpts::new().with_custom_types(true);
+        let db = TempDatabase::new_with_existent_with_opts(&path, opts);
+        let conn = db.connect_limbo();
+        // The cast yields the STORED representation (decode applies on
+        // column reads, not casts), so route the assertion through the
+        // decode function explicitly; the regression under test is that
+        // the statement ERRORED outright.
+        let rows: Vec<(String,)> =
+            conn.exec_rows("SELECT json((SELECT CAST('{\"a\":1}' AS jsonb)))");
+        assert_eq!(rows, vec![("{\"a\":1}".to_string(),)]);
+        conn.execute("CREATE TYPE cents BASE integer ENCODE value * 100 DECODE value / 100")
+            .unwrap();
+        let rows: Vec<(i64,)> = conn.exec_rows("SELECT (SELECT CAST(42 AS cents))");
+        assert_eq!(rows, vec![(4200,)]);
+        conn.close().unwrap();
+    }
 }
