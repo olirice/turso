@@ -89,6 +89,12 @@ mod vdbe;
 mod vtab;
 
 pub use function::Func;
+// The array primitives schema dialects consume (see their doc comments in
+// `vdbe::array`): re-exported here because `vdbe` itself is public only
+// under the fuzz/bench features.
+pub use vdbe::array::{
+    array_values_from_any, parse_text_array, serialize_array_from_blob, values_to_record_blob,
+};
 #[cfg(any(feature = "fuzz", feature = "bench"))]
 pub use function::MathFunc;
 /// The printf engine backing the SQL printf()/format() functions, also used

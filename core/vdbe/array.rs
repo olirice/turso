@@ -20,7 +20,15 @@ pub(crate) fn array_values_from_blob(blob: &[u8]) -> Result<Vec<Value>> {
 /// Extract elements from any Value that represents an array.
 /// Handles record blobs, JSON text input, and NULL (empty array).
 /// Returns None if the value cannot be interpreted as an array.
-pub(crate) fn array_values_from_any(arr: &Value) -> Option<Vec<Value>> {
+///
+/// `pub` (with `parse_text_array`, `serialize_array_from_blob` and
+/// `values_to_record_blob`) so schema dialects can implement array
+/// consumers the core does not ship -- set-returning `unnest`, json
+/// rendering of an array value, and array-returning introspection
+/// (`array_positions`) all need to iterate, parse, render, or construct
+/// an array from outside this crate, and the record blob format is
+/// deliberately private in every other respect.
+pub fn array_values_from_any(arr: &Value) -> Option<Vec<Value>> {
     match arr {
         Value::Blob(blob) => array_values_from_blob(blob).ok(),
         Value::Text(text) => parse_text_array(text.as_str()),
@@ -31,7 +39,7 @@ pub(crate) fn array_values_from_any(arr: &Value) -> Option<Vec<Value>> {
 
 /// Parse a text array literal in PG format `{1, hello, NULL}` into a Vec<Value>.
 /// Handles integers, floats, strings (quoted and unquoted), and NULL.
-pub(crate) fn parse_text_array(text: &str) -> Option<Vec<Value>> {
+pub fn parse_text_array(text: &str) -> Option<Vec<Value>> {
     let text = text.trim();
     if text.starts_with('{') && text.ends_with('}') {
         return parse_pg_text_array(text);
@@ -144,7 +152,7 @@ fn parse_pg_text_array(text: &str) -> Option<Vec<Value>> {
 }
 
 /// Pack values into a record-format array blob.
-pub(crate) fn values_to_record_blob(values: &[Value]) -> Result<Value> {
+pub fn values_to_record_blob(values: &[Value]) -> Result<Value> {
     Ok(Value::Blob(
         ImmutableRecord::from_values(values, values.len())?.into_payload(),
     ))
@@ -155,7 +163,7 @@ pub(crate) fn values_to_record_blob(values: &[Value]) -> Result<Value> {
 /// - NULL elements → uppercase `NULL` (unquoted)
 /// - Text elements → double-quoted if they contain special chars, unquoted otherwise
 /// - Numeric elements → unquoted
-pub(crate) fn serialize_array_from_blob(blob: &[u8]) -> Result<String> {
+pub fn serialize_array_from_blob(blob: &[u8]) -> Result<String> {
     let iter = ValueIterator::new(blob)?;
     let mut result = String::from("{");
     let mut first = true;
