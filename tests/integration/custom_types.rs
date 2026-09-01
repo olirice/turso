@@ -560,4 +560,31 @@ mod tests {
         );
         conn.close().unwrap();
     }
+
+    /// Regression: a written CAST operand never dispatched to the type's own
+    /// operator function -- only a COLUMN read did -- so
+    /// `CAST(2.50 AS numeric(10,2)) + 1.5` coerced the encoded blob to 0
+    /// under the plain Add opcode and answered 1.5, silently.
+    #[test]
+    fn test_cast_operands_dispatch_to_the_types_own_operators() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("numeric_cast_ops.db");
+        let opts = turso_core::DatabaseOpts::new().with_custom_types(true);
+        let db = TempDatabase::new_with_existent_with_opts(&path, opts);
+        let conn = db.connect_limbo();
+        // Encoded cast + encoded-typed literal partner (the literal encodes
+        // with the cast's own (10,2) parameters).
+        let rows: Vec<(String,)> = conn.exec_rows("SELECT CAST(2.50 AS numeric(10,2)) + 1.5");
+        assert_eq!(rows, vec![("4.00".to_string(),)]);
+        // Encoded cast + bare cast: both report the type; addition keeps the
+        // wider scale, as PostgreSQL does.
+        let rows: Vec<(String,)> =
+            conn.exec_rows("SELECT CAST(2.50 AS numeric(10,2)) + CAST(1.5 AS numeric)");
+        assert_eq!(rows, vec![("4.00".to_string(),)]);
+        // Bare cast divisor with a literal dividend: no operand is encoded,
+        // and the quotient still carries PostgreSQL's scale.
+        let rows: Vec<(String,)> = conn.exec_rows("SELECT 11 / CAST(4 AS numeric)");
+        assert_eq!(rows, vec![("2.7500000000000000".to_string(),)]);
+        conn.close().unwrap();
+    }
 }

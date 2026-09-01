@@ -122,6 +122,16 @@ pub(super) struct ExprCustomTypeInfo {
     type_name: String,
     column: Column,
     type_def: Arc<TypeDef>,
+    /// Whether this operand's runtime value carries the type's ENCODED
+    /// representation -- true for a column read and for a cast whose
+    /// parameter count matches the type's, false for a bare parametric cast
+    /// (`CAST(x AS numeric)` with no `(p, s)`), which `translate_expr`'s
+    /// Cast arm leaves un-encoded. A literal partner is only pre-encoded
+    /// when the typed operand itself is encoded; the operator functions
+    /// accept either form, but the two operands must not arrive one
+    /// deliberately encoded against one raw literal the type would have
+    /// encoded differently.
+    value_is_encoded: bool,
 }
 
 /// If the expression is a column reference to a custom type, return the type info.
@@ -147,7 +157,56 @@ pub(super) fn expr_custom_type_info(
             type_name: type_name.to_lowercase(),
             column: col.clone(),
             type_def: Arc::clone(type_def),
+            value_is_encoded: true,
         });
+    }
+    // A written CAST states the operand's type as plainly as a column read
+    // does: without this arm, `CAST(2.50 AS numeric(10,2)) + 1` fell through
+    // to the plain arithmetic opcodes, which coerce the encoded blob to 0 --
+    // a silently wrong answer, where the same expression over a column of
+    // the type dispatches to the type's own operator function. The
+    // synthesized column carries the cast's own type parameters, exactly as
+    // the Cast arm of `translate_expr` builds them, so a literal operand's
+    // pre-call encode sees the same parameters the cast itself used. A cast
+    // whose parameter count does not match the type's (`CAST(x AS numeric)`
+    // when the head left it bare) still reports the TYPE: its runtime value
+    // is the un-encoded scalar, which every operator function accepts
+    // alongside the encoded form (`value_to_bigdecimal` and friends take
+    // both).
+    if let ast::Expr::Cast {
+        type_name: Some(type_name),
+        ..
+    } = expr
+    {
+        let type_def = resolver.schema().get_type_def(&type_name.name, true)?;
+        let ty_params: Vec<Box<ast::Expr>> = match &type_name.size {
+            Some(ast::TypeSize::MaxSize(e)) => vec![e.clone()],
+            Some(ast::TypeSize::TypeSize(e1, e2)) => vec![e1.clone(), e2.clone()],
+            None => Vec::new(),
+        };
+        let mut cast_col = crate::schema::Column::new(
+            None,
+            type_name.name.clone(),
+            None,
+            None,
+            crate::schema::Type::Null,
+            None,
+            crate::schema::ColDef::default(),
+        );
+        let user_param_count = type_def.user_params().count();
+        let value_is_encoded = user_param_count == 0 || ty_params.len() == user_param_count;
+        cast_col.ty_params = ty_params;
+        return Some(ExprCustomTypeInfo {
+            type_name: type_name.name.to_lowercase(),
+            column: cast_col,
+            type_def: Arc::clone(type_def),
+            value_is_encoded,
+        });
+    }
+    if let ast::Expr::Parenthesized(inner) = expr {
+        if let [only] = inner.as_slice() {
+            return expr_custom_type_info(only, referenced_tables, resolver);
+        }
     }
     None
 }
@@ -285,7 +344,7 @@ pub(super) fn find_custom_type_operator(
                         func_name,
                         swap_args,
                         negate,
-                        encode_info: Some(OperatorEncodeInfo {
+                        encode_info: lhs.value_is_encoded.then(|| OperatorEncodeInfo {
                             column: lhs.column.clone(),
                             type_def: lhs.type_def.clone(),
                             which: EncodeArg::Second,
@@ -305,7 +364,7 @@ pub(super) fn find_custom_type_operator(
                         func_name,
                         swap_args,
                         negate,
-                        encode_info: Some(OperatorEncodeInfo {
+                        encode_info: rhs.value_is_encoded.then(|| OperatorEncodeInfo {
                             column: rhs.column.clone(),
                             type_def: rhs.type_def.clone(),
                             which: EncodeArg::First,
