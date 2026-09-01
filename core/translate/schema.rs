@@ -2862,7 +2862,15 @@ pub fn translate_create_domain(
 
     // Build the CREATE DOMAIN SQL for persistence
     let sql = {
-        let mut s = format!("CREATE DOMAIN {normalized_name} AS {base_type}");
+        // Identifiers are quoted when necessary (`quote_identifier` is a
+        // no-op otherwise): a domain or constraint whose name is a keyword
+        // ("unbounded", "window", ...) used to persist bare and then fail
+        // this module's own reparse on the next schema load.
+        let mut s = format!(
+            "CREATE DOMAIN {} AS {}",
+            crate::util::quote_identifier(&normalized_name),
+            crate::util::quote_identifier(base_type)
+        );
         if let Some(ref def) = default {
             s.push_str(&format!(" DEFAULT {def}"));
         }
@@ -2871,7 +2879,7 @@ pub fn translate_create_domain(
         }
         for c in constraints {
             if let Some(ref name) = c.name {
-                s.push_str(&format!(" CONSTRAINT {name}"));
+                s.push_str(&format!(" CONSTRAINT {}", crate::util::quote_identifier(name)));
             }
             s.push_str(&format!(" CHECK ({})", c.check));
         }

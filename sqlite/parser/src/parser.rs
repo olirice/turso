@@ -5019,22 +5019,18 @@ impl<'a> Parser<'a> {
         eat_assert!(self, TK_ID);
         let if_not_exists = self.parse_if_not_exists()?;
 
-        // Parse domain name
-        let name_tok = self.eat()?;
-        let domain_name = match name_tok {
-            Some(tok) if tok.token_type == TK_ID => from_bytes(tok.as_bytes()),
-            _ => return Err(Error::ParseError("expected domain name".to_owned())),
-        };
+        // Parse domain name: `parse_nm` rather than a bare TK_ID match, so
+        // quoted identifiers dequote and quotable keywords ("unbounded",
+        // "window", ...) are accepted -- the same rule every other name in
+        // the grammar follows. A keyword-named domain used to persist and
+        // then fail this very parser on schema reload.
+        let domain_name = self.parse_nm()?.as_str().to_owned();
 
         // Eat AS keyword
         eat_expect!(self, TK_AS);
 
         // Parse base type name (any identifier — primitive, custom type, or another domain)
-        let base_tok = self.eat()?;
-        let base_type = match base_tok {
-            Some(tok) if tok.token_type == TK_ID => from_bytes(tok.as_bytes()),
-            _ => return Err(Error::ParseError("expected base type name".to_owned())),
-        };
+        let base_type = self.parse_nm()?.as_str().to_owned();
 
         let mut default = None;
         let mut not_null = false;

@@ -1062,6 +1062,7 @@ impl Schema {
             Ok(Some(Cmd::Stmt(Stmt::CreateType {
                 type_name, body, ..
             }))) => {
+                let type_name = crate::util::normalize_ident(&type_name);
                 let type_def =
                     TypeDef::from_create_type(&type_name, &body, false, sql.to_string())?;
                 self.type_registry
@@ -1075,6 +1076,8 @@ impl Schema {
                 constraints,
                 ..
             }))) => {
+                let domain_name = crate::util::normalize_ident(&domain_name);
+                let base_type = crate::util::normalize_ident(&base_type);
                 let type_def = TypeDef::from_domain(
                     &domain_name,
                     &base_type,
