@@ -1349,6 +1349,18 @@ impl Statement {
         Ok(())
     }
 
+    /// The value currently held at a 1-based parameter slot (`Null` when
+    /// unbound). A trigger subprogram's `__turso_set_new` writes these
+    /// slots while running; the parent's Program opcode reads them back
+    /// after completion to apply a BEFORE trigger's NEW assignments.
+    pub fn bound_parameter(&self, index: NonZero<usize>) -> Value {
+        self.state
+            .parameters
+            .get(index.get() - 1)
+            .cloned()
+            .unwrap_or(Value::Null)
+    }
+
     /// Returns the SQL text with every parameter marker replaced by the
     /// literal of its currently bound value (NULL when unbound), following
     /// SQLite's sqlite3_expanded_sql rendering. The text is re-tokenized

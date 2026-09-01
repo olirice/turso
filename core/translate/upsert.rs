@@ -850,6 +850,7 @@ pub fn emit_upsert(
                     connection,
                     upsert_database_id,
                     ctx.loop_labels.row_done,
+                    None,
                 )?;
             }
 
@@ -1483,6 +1484,7 @@ pub fn emit_upsert(
                     connection,
                     upsert_database_id,
                     after_trigger_done,
+                    None,
                 )?;
             }
             program.preassign_label_to_next_insn(after_trigger_done);

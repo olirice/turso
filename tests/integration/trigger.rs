@@ -2116,3 +2116,95 @@ fn test_changes_after_foreign_key_failure_reset_to_zero(db: TempDatabase) {
     let total_changes: Vec<(i64,)> = conn.exec_rows("SELECT total_changes()");
     assert_eq!(total_changes, vec![(2,)]);
 }
+
+/// `__turso_set_new('col', expr)`: a BEFORE trigger's assignment to the
+/// in-flight NEW row (the shape a schema dialect's trigger compiler stores
+/// for a PL/pgSQL `NEW.col := expr`; any SQLite-format reader still parses
+/// the body as a plain SELECT). The assignment must reach the stored row,
+/// respect its WHERE guard, be visible to later commands in the same body,
+/// and survive the UPDATE path's post-trigger column reload.
+#[turso_macros::test(mvcc)]
+fn test_set_new_assigns_the_in_flight_row(db: TempDatabase) {
+    let conn = db.connect_limbo();
+    conn.execute("CREATE TABLE t (a INTEGER, b TEXT, c TEXT)")
+        .unwrap();
+    conn.execute(
+        "CREATE TRIGGER tr BEFORE INSERT ON t BEGIN
+         SELECT __turso_set_new('b', 'set-' || NEW.a) WHERE NEW.a > 0;
+         SELECT __turso_set_new('c', NEW.b || '!');
+        END",
+    )
+    .unwrap();
+    conn.execute("INSERT INTO t VALUES (1, 'orig', 'x')")
+        .unwrap();
+    conn.execute("INSERT INTO t VALUES (-1, 'orig', 'x')")
+        .unwrap();
+    let rows: Vec<(i64, String, String)> = conn.exec_rows("SELECT a, b, c FROM t ORDER BY a");
+    assert_eq!(
+        rows,
+        vec![
+            // Guard false: b keeps its inserted value, c still sees it.
+            (-1, "orig".to_string(), "orig!".to_string()),
+            // Guard true: b assigned, and the second command reads the
+            // assignment through the same parameter slot.
+            (1, "set-1".to_string(), "set-1!".to_string()),
+        ]
+    );
+
+    conn.execute(
+        "CREATE TRIGGER tu BEFORE UPDATE ON t BEGIN
+         SELECT __turso_set_new('c', 'updated');
+        END",
+    )
+    .unwrap();
+    // `c` is not in the SET list: the UPDATE path re-reads non-SET columns
+    // from the cursor after BEFORE triggers, and the assignment must win.
+    conn.execute("UPDATE t SET a = 9 WHERE a = 1").unwrap();
+    let rows: Vec<(i64, String)> = conn.exec_rows("SELECT a, c FROM t WHERE a = 9");
+    assert_eq!(rows, vec![(9, "updated".to_string())]);
+}
+
+/// The refusal edges: outside a trigger body, an unknown column, and the
+/// rowid alias.
+#[turso_macros::test(mvcc)]
+fn test_set_new_refusals(db: TempDatabase) {
+    let conn = db.connect_limbo();
+    conn.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, b TEXT)")
+        .unwrap();
+    let err = conn
+        .execute("SELECT __turso_set_new('b', 'x')")
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("trigger body"),
+        "outside a trigger: {err}"
+    );
+    let err = conn
+        .execute(
+            "CREATE TRIGGER tr BEFORE INSERT ON t BEGIN
+             SELECT __turso_set_new('nope', 1);
+            END",
+        )
+        .err()
+        .map(|e| e.to_string())
+        .unwrap_or_else(|| {
+            conn.execute("INSERT INTO t VALUES (1, 'x')")
+                .unwrap_err()
+                .to_string()
+        });
+    assert!(err.contains("no such column"), "unknown column: {err}");
+    conn.execute("DROP TRIGGER IF EXISTS tr").unwrap();
+    let err = conn
+        .execute(
+            "CREATE TRIGGER tr2 BEFORE INSERT ON t BEGIN
+             SELECT __turso_set_new('id', 5);
+            END",
+        )
+        .err()
+        .map(|e| e.to_string())
+        .unwrap_or_else(|| {
+            conn.execute("INSERT INTO t VALUES (2, 'x')")
+                .unwrap_err()
+                .to_string()
+        });
+    assert!(err.contains("rowid alias"), "rowid alias: {err}");
+}

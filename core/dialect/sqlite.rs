@@ -543,6 +543,7 @@ pub fn resolve_builtin_function(name: &str, arg_count: usize) -> crate::Result<O
         "numeric_div" => Ok(Some(Func::Scalar(ScalarFunc::NumericDiv))),
         "numeric_lt" => Ok(Some(Func::Scalar(ScalarFunc::NumericLt))),
         "numeric_eq" => Ok(Some(Func::Scalar(ScalarFunc::NumericEq))),
+        "__turso_set_new" => Ok(Some(Func::Scalar(ScalarFunc::TursoSetNew))),
         // Array construction / element access (desugared from syntax)
         "array" => Ok(Some(Func::Scalar(ScalarFunc::Array))),
         "array_element" => Ok(Some(Func::Scalar(ScalarFunc::ArrayElement))),

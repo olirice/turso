@@ -185,6 +185,11 @@ impl ParamAllocator {
 struct TriggerSubprogramContext {
     /// Sparse parameter allocator (allocates on demand during AST rewrite)
     param_alloc: RefCell<ParamAllocator>,
+    /// `(parameter index, column index)` for each NEW column the body
+    /// ASSIGNS (`__turso_set_new`): the parent copies these parameters back
+    /// into its own NEW registers after the subprogram completes, so the
+    /// assignment reaches the record build.
+    assigned_new: RefCell<Vec<(NonZero<usize>, usize)>>,
     /// Whether this trigger has NEW registers
     has_new: bool,
     /// Whether this trigger has OLD registers
@@ -389,6 +394,14 @@ fn trigger_cmd_to_stmt_for_subprogram(
         ast::TriggerCmd::Select(select) => {
             // Rewrite NEW/OLD references in the SELECT
             let mut select_clone = select.clone();
+            // A `__turso_set_new('col', expr)` assignment first (the shape a
+            // schema dialect's trigger compiler stores for `NEW.col := expr`,
+            // chosen because any SQLite-format reader still parses it as a
+            // plain SELECT): the column name becomes the assigned parameter
+            // slot, and the value coerces to the column's own declared type,
+            // exactly as an assignment does. NEW/OLD references inside the
+            // value are the general rewrite's, below.
+            rewrite_set_new_calls_in_select(&mut select_clone, subprogram_ctx)?;
             rewrite_expressions_in_select_for_subprogram(&mut select_clone, subprogram_ctx)?;
             Ok(ast::Stmt::Select(select_clone))
         }
@@ -402,6 +415,79 @@ fn rewrite_expressions_in_select_for_subprogram(
 ) -> Result<()> {
     rewrite_select_expressions(select, &mut |e: &mut ast::Expr| {
         rewrite_trigger_expr_single_for_subprogram(e, ctx)
+    })
+}
+
+/// Splice `__turso_set_new('col', value)` calls: the string first argument
+/// becomes the assigned NEW parameter's 1-based index, and the value wraps
+/// in a CAST to the column's declared type, which is both PostgreSQL's own
+/// assignment coercion and -- for a custom-typed column -- exactly the
+/// ENCODE the parameter's other producers already applied, so the slot
+/// stays in the representation every reader of it expects.
+fn rewrite_set_new_calls_in_select(
+    select: &mut ast::Select,
+    ctx: &TriggerSubprogramContext,
+) -> Result<()> {
+    rewrite_select_expressions(select, &mut |e: &mut ast::Expr| {
+        let Expr::FunctionCall { name, args, .. } = e else {
+            return Ok(());
+        };
+        if !name.as_str().eq_ignore_ascii_case("__turso_set_new") {
+            return Ok(());
+        }
+        if args.len() != 2 {
+            bail_parse_error!("__turso_set_new takes a column name and a value");
+        }
+        let Expr::Literal(ast::Literal::String(quoted)) = args[0].as_ref() else {
+            bail_parse_error!("__turso_set_new's first argument must be a column name literal");
+        };
+        // The literal carries its single quotes in the AST; peel them (and
+        // their '' escape) before the identifier lookup.
+        let raw = quoted.as_str();
+        let unquoted = if raw.len() >= 2 && raw.starts_with('\'') && raw.ends_with('\'') {
+            raw[1..raw.len() - 1].replace("''", "'")
+        } else {
+            raw.to_string()
+        };
+        let col = normalize_ident(&unquoted);
+        if !ctx.has_new {
+            bail_parse_error!("NEW assignments are only valid in INSERT and UPDATE triggers");
+        }
+        let Some((idx, col_def)) = ctx.table.get_column(&col) else {
+            bail_parse_error!("no such column: new.{}", col);
+        };
+        if col_def.is_rowid_alias() {
+            bail_parse_error!(
+                "assigning to the rowid alias column {} in a trigger is not supported",
+                col
+            );
+        }
+        let param = ctx.get_new_param(idx).expect("has_new was checked above");
+        ctx.assigned_new.borrow_mut().push((param, idx));
+        let value = args.pop().expect("two arguments were checked above");
+        let value = if col_def.ty_str.is_empty() {
+            value
+        } else {
+            let size = match col_def.ty_params.as_slice() {
+                [] => None,
+                [one] => Some(ast::TypeSize::MaxSize(one.clone())),
+                [one, two, ..] => Some(ast::TypeSize::TypeSize(one.clone(), two.clone())),
+            };
+            Box::new(Expr::Cast {
+                expr: value,
+                type_name: Some(ast::Type {
+                    name: col_def.ty_str.clone(),
+                    size,
+                    array_dimensions: 0,
+                }),
+            })
+        };
+        args.clear();
+        args.push(Box::new(Expr::Literal(ast::Literal::Numeric(
+            param.get().to_string(),
+        ))));
+        args.push(value);
+        Ok(())
     })
 }
 
@@ -520,6 +606,7 @@ fn rewrite_trigger_expr_single_for_subprogram(
 
 /// Execute trigger commands by compiling them as a subprogram and emitting Program instruction
 /// Returns true if there are triggers that will fire.
+#[allow(clippy::too_many_arguments)]
 #[turso_macros::trace_stack(detail = trigger_event_kind(&trigger.event))]
 fn execute_trigger_commands(
     program: &mut ProgramBuilder,
@@ -529,6 +616,7 @@ fn execute_trigger_commands(
     connection: &Arc<crate::Connection>,
     database_id: usize,
     ignore_jump_target: BranchOffset,
+    assigned_registers: Option<&mut Vec<usize>>,
 ) -> Result<bool> {
     struct TriggerCompilationGuard {
         connection: Arc<crate::Connection>,
@@ -568,6 +656,7 @@ fn execute_trigger_commands(
     // reducing bind_at calls from N (all columns) to K (referenced columns).
     let subprogram_ctx = TriggerSubprogramContext {
         param_alloc: RefCell::new(ParamAllocator::new(num_cols, has_new, has_old)),
+        assigned_new: RefCell::new(Vec::new()),
         has_new,
         has_old,
         table: ctx.table.clone(),
@@ -675,10 +764,29 @@ fn execute_trigger_commands(
     }
     drop(alloc);
 
+    // Assigned NEW columns copy back into the parent's registers on clean
+    // completion, so a BEFORE trigger's assignment reaches the record build
+    // (and the next trigger's own parameter binding).
+    let new_value_writeback: Vec<(NonZero<usize>, usize)> =
+        if let Some(new_regs) = &ctx.new_registers {
+            subprogram_ctx
+                .assigned_new
+                .borrow()
+                .iter()
+                .map(|(param, col_idx)| (*param, new_regs[*col_idx]))
+                .collect()
+        } else {
+            Vec::new()
+        };
+    if let Some(assigned) = assigned_registers {
+        assigned.extend(new_value_writeback.iter().map(|(_, reg)| *reg));
+    }
+
     program.emit_insn(Insn::Program {
         param_registers,
         program: Subprogram::PreparedProgram(built_subprogram.prepared().clone()),
         ignore_jump_target,
+        new_value_writeback,
     });
 
     Ok(true)
@@ -865,6 +973,7 @@ pub fn has_triggers_including_temp(
     false
 }
 
+#[allow(clippy::too_many_arguments)]
 #[turso_macros::trace_stack(detail = trigger_event_kind(&trigger.event))]
 pub fn fire_trigger(
     program: &mut ProgramBuilder,
@@ -874,6 +983,11 @@ pub fn fire_trigger(
     connection: &Arc<crate::Connection>,
     database_id: usize,
     ignore_jump_target: BranchOffset,
+    // Collects the parent registers this trigger's body ASSIGNS
+    // (`__turso_set_new`), for callers that re-read columns after firing
+    // (the UPDATE path's post-trigger reload) and must not clobber an
+    // assignment with the cursor's value.
+    assigned_registers: Option<&mut Vec<usize>>,
 ) -> Result<()> {
     // Decode custom type registers so trigger bodies see user-facing values,
     // not raw encoded blobs from disk.
@@ -953,6 +1067,7 @@ pub fn fire_trigger(
                 connection,
                 database_id,
                 ignore_jump_target,
+                assigned_registers,
             )?;
 
             program.preassign_label_to_next_insn(skip_label);
@@ -966,6 +1081,7 @@ pub fn fire_trigger(
                 connection,
                 database_id,
                 ignore_jump_target,
+                assigned_registers,
             )?;
         }
 

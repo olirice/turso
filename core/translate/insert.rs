@@ -616,6 +616,7 @@ pub fn translate_insert(
                 connection,
                 database_id,
                 ctx.loop_labels.row_done,
+                None,
             )?;
         }
         // Restore the original key register value so the post-trigger NotNull check
@@ -1020,6 +1021,7 @@ pub fn translate_insert(
                 connection,
                 database_id,
                 after_trigger_done,
+                None,
             )?;
         }
         program.preassign_label_to_next_insn(after_trigger_done);

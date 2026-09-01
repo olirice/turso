@@ -891,6 +891,15 @@ pub enum ScalarFunc {
     NumericDiv,
     NumericLt,
     NumericEq,
+    /// Internal, trigger-subprogram only: write arg 2's value into the
+    /// subprogram's own bound parameter slot named by arg 1 (a 1-based
+    /// index the subprogram compiler spliced in), so a BEFORE trigger's
+    /// `NEW.col := expr` assignment is visible to later Variable reads in
+    /// the same body and to the parent's post-Program write-back. The
+    /// stored trigger body spells it `__turso_set_new('col', expr)` -- a
+    /// plain SELECT any SQLite-format reader parses; a build without the
+    /// function errs only if the trigger actually fires.
+    TursoSetNew,
     // Array construction / element access (desugared from ARRAY[…] and expr[n] syntax)
     Array,
     ArrayElement,
@@ -925,6 +934,9 @@ impl Deterministic for ScalarFunc {
         match self {
             ScalarFunc::Cast => true,
             ScalarFunc::Changes => false, // depends on DB state
+            // Writes a parameter slot: a side effect, so it must never
+            // constant-fold or hoist out of its guarded position.
+            ScalarFunc::TursoSetNew => false,
             ScalarFunc::Char => true,
             ScalarFunc::Coalesce => true,
             ScalarFunc::Concat => true,
@@ -1168,6 +1180,7 @@ impl Display for ScalarFunc {
             Self::NumericDiv => "numeric_div",
             Self::NumericLt => "numeric_lt",
             Self::NumericEq => "numeric_eq",
+            Self::TursoSetNew => "__turso_set_new",
             Self::Array => "array",
             Self::ArrayElement => "array_element",
             Self::ArraySetElement => "array_set_element",
@@ -1214,6 +1227,7 @@ impl ScalarFunc {
                 | Self::BinRecordJsonObject
                 | Self::ConnTxnId
                 | Self::IsAutocommit
+                | Self::TursoSetNew
         )
     }
 
@@ -1315,7 +1329,8 @@ impl ScalarFunc {
             | Self::NumericMul
             | Self::NumericDiv
             | Self::NumericLt
-            | Self::NumericEq => &[2],
+            | Self::NumericEq
+            | Self::TursoSetNew => &[2],
             Self::NumericEncode => &[3],
             // Array construction / element access
             Self::Array => &[-1], // variable arity

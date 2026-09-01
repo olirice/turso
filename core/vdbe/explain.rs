@@ -1077,6 +1077,7 @@ pub fn insn_to_row(
                 param_registers,
                 ignore_jump_target,
                 program: subprogram,
+                ..
             } => {
                 let sql = subprogram
                     .prepared_program()

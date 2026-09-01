@@ -950,6 +950,7 @@ fn emit_delete_insns_when_triggers_present(
                     connection,
                     database_id,
                     skip_not_found_label,
+                    None,
                 )?;
             }
         }
@@ -1014,6 +1015,7 @@ fn emit_delete_insns_when_triggers_present(
                     connection,
                     database_id,
                     skip_not_found_label,
+                    None,
                 )?;
             }
         }

@@ -1013,6 +1013,13 @@ pub enum Insn {
         /// Jump target when RAISE(IGNORE) fires in the subprogram.
         /// Points to the "skip this row" address in the parent program.
         ignore_jump_target: BranchOffset,
+        /// `(parameter index, parent register)` for each NEW column a
+        /// BEFORE trigger's body ASSIGNS (`__turso_set_new`): on clean
+        /// completion the subprogram's final parameter value is copied back
+        /// into the parent register, so the assignment reaches the record
+        /// build. Empty for every body without assignments and for
+        /// foreign-key action subprograms.
+        new_value_writeback: Vec<(std::num::NonZero<usize>, usize)>,
     },
 
     /// Copy the current VM change counter to the connection-level counters, then reset it.

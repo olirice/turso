@@ -1756,6 +1756,7 @@ fn emit_fk_action_subprogram(
     }
     let ignore_jump_target = program.allocate_label();
     program.emit_insn(Insn::Program {
+        new_value_writeback: Vec::new(),
         param_registers,
         program: subprogram,
         ignore_jump_target,

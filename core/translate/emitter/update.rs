@@ -1316,6 +1316,10 @@ fn emit_update_insns<'a>(
     }
 
     // Fire BEFORE UPDATE triggers and preserve old_registers for AFTER triggers
+    // Parent registers a BEFORE trigger body ASSIGNS (`__turso_set_new`):
+    // the post-trigger reload below re-reads non-SET columns from the
+    // cursor, and an assignment must survive it.
+    let mut assigned_new_registers: Vec<usize> = Vec::new();
     let mut has_after_triggers = false;
     let preserved_old_registers: Option<Vec<usize>> =
         if let Some(btree_table) = target_table.table.btree() {
@@ -1407,6 +1411,7 @@ fn emit_update_insns<'a>(
                         connection,
                         update_database_id,
                         trigger_ignore_jump_label,
+                        Some(&mut assigned_new_registers),
                     )?;
                 }
 
@@ -1459,6 +1464,24 @@ fn emit_update_insns<'a>(
     // sqlite> select * from t;
     // 2|666|666
     if target_table.table.btree().is_some() && has_before_triggers {
+        // A trigger-body ASSIGNMENT (`__turso_set_new`) lives in the NEW
+        // registers the subprogram wrote back; the reload below re-reads
+        // non-SET columns from the cursor and would clobber it. Stash the
+        // assigned registers across the reload: the assignment wins over
+        // the cursor's value, exactly as it does for a SET column.
+        assigned_new_registers.sort_unstable();
+        assigned_new_registers.dedup();
+        let assignment_stash: Vec<(usize, usize)> = assigned_new_registers
+            .iter()
+            .map(|reg| (*reg, program.alloc_register()))
+            .collect();
+        for (reg, scratch) in &assignment_stash {
+            program.emit_insn(Insn::Copy {
+                src_reg: *reg,
+                dst_reg: *scratch,
+                extra_amount: 0,
+            });
+        }
         let skip_set_clauses = true;
         // Re-read non-SET columns (triggers may have changed them).
         // NOT NULL checks are NOT skipped here — they cover non-SET columns.
@@ -1472,6 +1495,13 @@ fn emit_update_insns<'a>(
             skip_row_label,
             false,
         )?;
+        for (reg, scratch) in &assignment_stash {
+            program.emit_insn(Insn::Copy {
+                src_reg: *scratch,
+                dst_reg: *reg,
+                extra_amount: 0,
+            });
+        }
 
         // Now emit NOT NULL checks for SET clause columns that were deferred
         // from the first emit_update_column_values call. In SQLite, NOT NULL
@@ -2612,6 +2642,7 @@ fn emit_update_insns<'a>(
                             connection,
                             update_database_id,
                             after_trigger_done,
+                            None,
                         )?;
                     }
                     program.preassign_label_to_next_insn(after_trigger_done);

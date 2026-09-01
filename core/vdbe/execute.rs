@@ -5547,6 +5547,7 @@ pub fn op_program(
             param_registers,
             program: subprogram,
             ignore_jump_target,
+            new_value_writeback,
         },
         insn
     );
@@ -5684,6 +5685,17 @@ pub fn op_program(
                     saved_last_insert_rowid,
                     saved_last_changes_value,
                 );
+
+                // A BEFORE trigger's assignments (__turso_set_new) live in
+                // the subprogram's final parameter values; copy them back
+                // into the parent's NEW registers so the assignment reaches
+                // the record build. Only on clean completion: an aborted
+                // subprogram assigned nothing the statement will use.
+                if !subprogram_aborted {
+                    for (param, parent_reg) in new_value_writeback {
+                        state.registers[*parent_reg].set_value(statement.bound_parameter(*param));
+                    }
+                }
 
                 // Cache the statement for reuse on subsequent fires of this
                 // same Program instruction (e.g. next row in an INSERT loop).
@@ -10646,6 +10658,37 @@ pub fn op_function(
                         state.registers[*dest].set_int(cmp_result as i64)
                     }
                 };
+            }
+            ScalarFunc::TursoSetNew => {
+                check_arg_count!(arg_count, 2);
+                // Trigger-subprogram only: the first argument is the 1-based
+                // parameter slot the subprogram compiler spliced in for the
+                // assigned NEW column, and writing it is what makes the
+                // assignment visible to later Variable reads in this body
+                // and to the parent's post-Program write-back.
+                if program.trigger.is_none() {
+                    return Err(LimboError::Constraint(
+                        "__turso_set_new may only be used inside a trigger body".to_string(),
+                    ));
+                }
+                let param_index = match state.registers[*start_reg].get_value() {
+                    Value::Numeric(Numeric::Integer(i)) if *i >= 1 => *i as usize,
+                    other => {
+                        return Err(LimboError::InternalError(format!(
+                            "__turso_set_new: malformed parameter index {other}"
+                        )));
+                    }
+                };
+                let value = state.registers[*start_reg + 1].get_value().clone();
+                // Direct slot assignment, not `bind_at`: that entry point
+                // EXTENDS an existing text/blob binding (its streaming-bind
+                // semantics), and an assignment must replace.
+                let slot = param_index - 1;
+                if state.parameters.len() <= slot {
+                    state.parameters.resize(slot + 1, Value::Null);
+                }
+                state.parameters[slot] = value;
+                state.registers[*dest].set_value(Value::Null);
             }
             ScalarFunc::ArrayAppend => {
                 check_arg_count!(arg_count, 2);
