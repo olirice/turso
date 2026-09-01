@@ -617,6 +617,7 @@ fn execute_trigger_commands(
     database_id: usize,
     ignore_jump_target: BranchOffset,
     assigned_registers: Option<&mut Vec<usize>>,
+    writeback_new_registers: Option<&Vec<usize>>,
 ) -> Result<bool> {
     struct TriggerCompilationGuard {
         connection: Arc<crate::Connection>,
@@ -768,7 +769,7 @@ fn execute_trigger_commands(
     // completion, so a BEFORE trigger's assignment reaches the record build
     // (and the next trigger's own parameter binding).
     let new_value_writeback: Vec<(NonZero<usize>, usize)> =
-        if let Some(new_regs) = &ctx.new_registers {
+        if let Some(new_regs) = writeback_new_registers {
             subprogram_ctx
                 .assigned_new
                 .borrow()
@@ -913,6 +914,12 @@ pub fn get_triggers_including_temp(
         })
         .collect()
     });
+    // Within a schema, fire in NAME order: SQLite documents the relative
+    // order of same-event triggers as undefined, so a deterministic order
+    // is free to pick, and name order is both reproducible across runs and
+    // what PostgreSQL specifies -- an assignment made by an earlier-named
+    // BEFORE trigger is visible to a later-named one's WHEN clause there.
+    triggers.sort_by(|a, b| a.name.cmp(&b.name));
     if database_id != crate::TEMP_DB_ID && resolver.has_temp_database() {
         let temp_triggers: Vec<Arc<Trigger>> = resolver.with_schema(crate::TEMP_DB_ID, |s| {
             get_relevant_triggers_type_and_time(s, event, time, updated_column_indices, table)
@@ -934,6 +941,11 @@ pub fn get_triggers_including_temp(
         // oldest-first at the front. Mirror that exactly: push each temp
         // trigger onto the front in the same newest-first walk. The order is
         // observable whenever one trigger's changes feed another.
+        // The temp group keeps its SQLite position at the front of the
+        // list; its own members fire in name order too, same rationale as
+        // the sort above (descending here because each push_front reverses).
+        let mut temp_triggers = temp_triggers;
+        temp_triggers.sort_by(|a, b| b.name.cmp(&a.name));
         let mut list: std::collections::VecDeque<Arc<Trigger>> = triggers.into();
         for trigger in temp_triggers {
             list.push_front(trigger);
@@ -998,6 +1010,11 @@ pub fn fire_trigger(
     // - Non-STRICT tables: INSERT/UPDATE emit Insn::Affinity before any trigger fires
     // - STRICT tables: no column affinity needed (apply_new_column_affinity was a no-op)
     // So we can use the decoded registers directly, skipping N Copy + 1 Affinity per fire.
+    // The write-back target for body assignments is the PARENT's own NEW
+    // registers, captured before the decode below may swap in decoded
+    // COPIES (the AFTER/upsert-arm variants): an assignment must reach the
+    // registers the record build and the next trigger's binding read.
+    let writeback_new_registers = ctx.new_registers.clone();
     let ctx = &decode_trigger_registers(program, resolver, ctx)?;
 
     let saved_register_affinities = std::mem::take(&mut resolver.register_affinities);
@@ -1068,6 +1085,7 @@ pub fn fire_trigger(
                 database_id,
                 ignore_jump_target,
                 assigned_registers,
+                writeback_new_registers.as_ref(),
             )?;
 
             program.preassign_label_to_next_insn(skip_label);
@@ -1082,6 +1100,7 @@ pub fn fire_trigger(
                 database_id,
                 ignore_jump_target,
                 assigned_registers,
+                writeback_new_registers.as_ref(),
             )?;
         }
 
