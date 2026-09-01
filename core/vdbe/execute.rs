@@ -13824,8 +13824,14 @@ pub fn op_sequence_compute_next(
     // register contains a qualified name like "aux.my_seq" — the
     // schema's sequences map is keyed by the bare name. The opcode's
     // `db` field already encodes the target database.
+    // Split at the FIRST dot: the prefix is the DATABASE (the opcode's
+    // `db` field already encodes it); everything after is the sequence's
+    // own name, which may itself contain dots (a dialect's schema-encoded
+    // physical names). The old LAST-dot strip truncated such a name and
+    // reported a sequence the translate side had just resolved
+    // (`translate_sequence_function` splits first-dot) as nonexistent.
     let bare_seq_name = seq_name
-        .rsplit_once('.')
+        .split_once('.')
         .map(|(_, n)| n)
         .unwrap_or(&seq_name);
     let seq = program
@@ -13987,8 +13993,14 @@ pub fn op_sequence_track_allocation(
             )
         })?;
 
+    // Split at the FIRST dot: the prefix is the DATABASE (the opcode's
+    // `db` field already encodes it); everything after is the sequence's
+    // own name, which may itself contain dots (a dialect's schema-encoded
+    // physical names). The old LAST-dot strip truncated such a name and
+    // reported a sequence the translate side had just resolved
+    // (`translate_sequence_function` splits first-dot) as nonexistent.
     let bare_seq_name = seq_name
-        .rsplit_once('.')
+        .split_once('.')
         .map(|(_, n)| n)
         .unwrap_or(&seq_name);
     let normalized_seq_name = crate::util::normalize_ident(bare_seq_name);
@@ -14079,8 +14091,14 @@ pub fn op_sequence_register_allocation(
             )
         })?;
 
+    // Split at the FIRST dot: the prefix is the DATABASE (the opcode's
+    // `db` field already encodes it); everything after is the sequence's
+    // own name, which may itself contain dots (a dialect's schema-encoded
+    // physical names). The old LAST-dot strip truncated such a name and
+    // reported a sequence the translate side had just resolved
+    // (`translate_sequence_function` splits first-dot) as nonexistent.
     let bare_seq_name = seq_name
-        .rsplit_once('.')
+        .split_once('.')
         .map(|(_, n)| n)
         .unwrap_or(&seq_name);
     let normalized_seq_name = crate::util::normalize_ident(bare_seq_name);

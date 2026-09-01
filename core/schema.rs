@@ -977,18 +977,31 @@ impl Schema {
     /// Look up a custom type definition by name.
     /// Custom types are only valid on STRICT tables; pass `is_strict` from the
     /// owning table so that non-STRICT tables never resolve a custom type.
+    /// The registry key for a written type name: lowercased, with one
+    /// layer of double quotes stripped (a column's declared `ty_str`
+    /// keeps its written quoting -- `c12 "dom2-x"` -- while registration
+    /// stores the bare name).
+    fn type_registry_key(type_name: &str) -> String {
+        let bare = type_name
+            .strip_prefix('"')
+            .and_then(|rest| rest.strip_suffix('"'))
+            .map(|inner| inner.replace("\"\"", "\""))
+            .unwrap_or_else(|| type_name.to_string());
+        bare.to_lowercase()
+    }
+
     pub fn get_type_def(&self, type_name: &str, is_strict: bool) -> Option<&Arc<TypeDef>> {
         if !is_strict {
             return None;
         }
-        self.type_registry.get(&type_name.to_lowercase())
+        self.type_registry.get(&Self::type_registry_key(type_name))
     }
 
     /// Look up a custom type definition by name without a strictness check.
     /// Only use this for operations that aren't column-scoped (e.g. DROP TYPE,
     /// CREATE TABLE validation, CAST).
     pub fn get_type_def_unchecked(&self, type_name: &str) -> Option<&Arc<TypeDef>> {
-        self.type_registry.get(&type_name.to_lowercase())
+        self.type_registry.get(&Self::type_registry_key(type_name))
     }
 
     /// Resolve a custom type fully: look it up (with strictness gate) and chase
@@ -1008,7 +1021,7 @@ impl Schema {
     /// Resolve a custom type fully without a strictness check.
     /// Returns `Ok(None)` if the type is not in the registry.
     pub fn resolve_type_unchecked(&self, type_name: &str) -> crate::Result<Option<ResolvedType>> {
-        let key = type_name.to_lowercase();
+        let key = Self::type_registry_key(type_name);
         if !self.type_registry.contains_key(&key) {
             return Ok(None);
         }
@@ -1017,7 +1030,8 @@ impl Schema {
     }
 
     pub fn remove_type(&mut self, type_name: &str) {
-        self.type_registry.remove(&type_name.to_lowercase());
+        self.type_registry
+            .remove(&Self::type_registry_key(type_name));
     }
 
     /// Chase the base type chain: domain_a → domain_b → integer
@@ -1030,7 +1044,7 @@ impl Schema {
     ) -> crate::Result<(String, Vec<Arc<TypeDef>>)> {
         let mut chain = vec![];
         let mut visited = std::collections::HashSet::new();
-        let mut current = type_name.to_lowercase();
+        let mut current = Self::type_registry_key(type_name);
 
         loop {
             if !visited.insert(current.clone()) {

@@ -2879,7 +2879,10 @@ pub fn translate_create_domain(
         }
         for c in constraints {
             if let Some(ref name) = c.name {
-                s.push_str(&format!(" CONSTRAINT {}", crate::util::quote_identifier(name)));
+                s.push_str(&format!(
+                    " CONSTRAINT {}",
+                    crate::util::quote_identifier(name)
+                ));
             }
             s.push_str(&format!(" CHECK ({})", c.check));
         }
