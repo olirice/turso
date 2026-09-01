@@ -515,4 +515,49 @@ mod tests {
         assert_eq!(rows, vec![(4,)]);
         conn.close().unwrap();
     }
+
+    /// Regression: a numeric typmod TRUNCATED where PostgreSQL rounds half
+    /// away from zero (probed on 17.7: 2.567::numeric(10,2) is 2.57, 2.545
+    /// is 2.55, -2.545 is -2.55).
+    #[test]
+    fn test_numeric_typmod_rounds_half_away_from_zero() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("numeric_round.db");
+        let opts = turso_core::DatabaseOpts::new().with_custom_types(true);
+        let db = TempDatabase::new_with_existent_with_opts(&path, opts);
+        let conn = db.connect_limbo();
+        let rows: Vec<(String, String, String)> = conn.exec_rows(
+            "SELECT numeric_decode(CAST(2.567 AS numeric(10,2))),              numeric_decode(CAST(2.545 AS numeric(10,2))),              numeric_decode(CAST(-2.545 AS numeric(10,2)))",
+        );
+        assert_eq!(
+            rows,
+            vec![("2.57".to_string(), "2.55".to_string(), "-2.55".to_string())]
+        );
+        conn.close().unwrap();
+    }
+
+    /// Regression: numeric division answered with bigdecimal's arbitrary
+    /// 100-digit default instead of PostgreSQL's quotient scale
+    /// (select_div_scale: at least 16 significant digits, estimated from
+    /// the operands' magnitudes -- probed on 17.7 for all three shapes).
+    #[test]
+    fn test_numeric_division_selects_postgres_quotient_scale() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("numeric_div.db");
+        let opts = turso_core::DatabaseOpts::new().with_custom_types(true);
+        let db = TempDatabase::new_with_existent_with_opts(&path, opts);
+        let conn = db.connect_limbo();
+        let rows: Vec<(String, String, String)> = conn.exec_rows(
+            "SELECT CAST(1 AS numeric) / 3, CAST(11 AS numeric) / 4, CAST(100 AS numeric) / 7",
+        );
+        assert_eq!(
+            rows,
+            vec![(
+                "0.33333333333333333333".to_string(),
+                "2.7500000000000000".to_string(),
+                "14.2857142857142857".to_string()
+            )]
+        );
+        conn.close().unwrap();
+    }
 }

@@ -10605,7 +10605,14 @@ pub fn op_function(
                                         "division by zero".to_string(),
                                     ));
                                 }
-                                a / b
+                                // PostgreSQL's quotient scale, then half-up
+                                // to it: bigdecimal's own division picks an
+                                // arbitrary 100-digit precision otherwise.
+                                let rscale = crate::numeric::decimal::div_rscale(&a, &b);
+                                (a / b).with_scale_round(
+                                    rscale,
+                                    bigdecimal::rounding::RoundingMode::HalfUp,
+                                )
                             }
                             _ => unreachable!(),
                         };

@@ -169,6 +169,53 @@ pub fn format_numeric(bd: &BigDecimal) -> String {
 /// Validate that a BigDecimal fits within the given precision and scale.
 /// Precision = total number of significant digits.
 /// Scale = number of digits after the decimal point.
+/// The result scale PostgreSQL's numeric division selects
+/// (`select_div_scale`, `utils/adt/numeric.c`): at least 16 significant
+/// digits in the quotient, never fewer fractional digits than either input
+/// carries. The quotient's magnitude is estimated from the operands' NBASE
+/// (10^4) weights and leading NBASE digits, exactly as PostgreSQL estimates
+/// it, so `1::numeric / 3` carries twenty fractional digits (the quotient
+/// sits below one) while `11::numeric / 4` carries sixteen -- probed on
+/// 17.7.
+pub fn div_rscale(dividend: &BigDecimal, divisor: &BigDecimal) -> i64 {
+    // NBASE weight and leading NBASE digit of a value: value =
+    // sum(digit[i] * NBASE^(weight - i)), digits in [0, 9999].
+    fn nbase_weight_and_first_digit(val: &BigDecimal) -> (i64, i64) {
+        use bigdecimal::Zero;
+        if val.is_zero() {
+            return (0, 0);
+        }
+        let (bigint, exponent) = val.as_bigint_and_exponent();
+        let digits = bigint.magnitude().to_string();
+        // Exponent of the leading decimal digit.
+        let leading_exp = digits.len() as i64 - 1 - exponent;
+        let weight = leading_exp.div_euclid(4);
+        // The leading NBASE digit spans decimal exponents
+        // [weight * 4, weight * 4 + 3]; the leading 1..=4 decimal digits of
+        // the value fall inside it.
+        let digits_in_first = (leading_exp - weight * 4 + 1) as usize;
+        let first: i64 = digits[..digits_in_first.min(digits.len())]
+            .parse()
+            .expect("leading decimal digits parse");
+        (weight, first)
+    }
+
+    const NUMERIC_MIN_SIG_DIGITS: i64 = 16;
+    const DEC_DIGITS: i64 = 4;
+    const NUMERIC_MAX_DISPLAY_SCALE: i64 = 1000;
+
+    let (weight1, firstdigit1) = nbase_weight_and_first_digit(dividend);
+    let (weight2, firstdigit2) = nbase_weight_and_first_digit(divisor);
+    let mut qweight = weight1 - weight2;
+    if firstdigit1 <= firstdigit2 {
+        qweight -= 1;
+    }
+    let mut rscale = NUMERIC_MIN_SIG_DIGITS - qweight * DEC_DIGITS;
+    rscale = rscale.max(dividend.as_bigint_and_exponent().1);
+    rscale = rscale.max(divisor.as_bigint_and_exponent().1);
+    rscale.clamp(0, NUMERIC_MAX_DISPLAY_SCALE)
+}
+
 pub fn validate_precision_scale(
     val: &BigDecimal,
     precision: i64,
@@ -196,8 +243,11 @@ pub fn validate_precision_scale(
         return Ok(BigDecimal::new(BigInt::from(0), scale));
     }
 
-    // Round to the requested scale
-    let rounded = val.with_scale(scale);
+    // Round to the requested scale. Half-up (ties away from zero), which is
+    // what PostgreSQL's numeric does when a typmod narrows the scale
+    // (probed on 17.7: 2.567::numeric(10,2) is 2.57, 2.545 is 2.55,
+    // -2.545 is -2.55); a bare `with_scale` truncates instead.
+    let rounded = val.with_scale_round(scale, bigdecimal::rounding::RoundingMode::HalfUp);
 
     // Count total significant digits (excluding leading zeros)
     let (bigint, _) = rounded.as_bigint_and_exponent();
