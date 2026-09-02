@@ -534,6 +534,22 @@ pub struct Connection {
     pub(crate) statement_activity: Arc<Mutex<StatementActivity>>,
     /// Whether pragma ignore_check_constraints=ON for this connection
     pub(super) check_constraints_pragma: AtomicBool,
+    /// Opt-in deterministic trigger firing: same-event triggers fire in
+    /// NAME order (PostgreSQL's rule) instead of SQLite's schema-walk
+    /// order. Off by default; a schema dialect that models PostgreSQL
+    /// enables it per connection. SQLite documents the relative order of
+    /// same-event triggers as undefined, but this engine's own conformance
+    /// corpus pins the walk order, so the PostgreSQL order is never the
+    /// default.
+    pub(super) trigger_name_order: AtomicBool,
+    /// Opt-in PostgreSQL NULL semantics for the array containment
+    /// operators (`&&`, `@>`/`<@`): they are built on element equality,
+    /// where NULL = NULL is unknown, so a NULL element never matches. Off
+    /// by default: the engine's own array tests pin NULL-matching
+    /// (`turso-sqltests/array-edge-cases.sqltest`). `array_contains` and
+    /// `array_position` are unaffected either way -- both engines agree
+    /// there (position compares IS NOT DISTINCT FROM in PostgreSQL too).
+    pub(super) array_nulls_never_match: AtomicBool,
     /// Track when each virtual table instance is currently in transaction.
     pub(crate) vtab_txn_states: RwLock<HashSet<u64>>,
     /// One prepared cursor per index-method attachment touched by the active
@@ -1979,6 +1995,27 @@ impl Connection {
 
     pub fn check_constraints_ignored(&self) -> bool {
         self.check_constraints_pragma.load(Ordering::Acquire)
+    }
+
+    /// Fire same-event triggers in NAME order (PostgreSQL's rule) instead
+    /// of SQLite's schema-walk order. See the field's doc.
+    pub fn set_trigger_name_order(&self, enabled: bool) {
+        self.trigger_name_order.store(enabled, Ordering::Release);
+    }
+
+    pub fn trigger_name_order(&self) -> bool {
+        self.trigger_name_order.load(Ordering::Acquire)
+    }
+
+    /// PostgreSQL NULL semantics for `&&` and `@>`/`<@`: a NULL element
+    /// never matches. See the field's doc.
+    pub fn set_array_nulls_never_match(&self, enabled: bool) {
+        self.array_nulls_never_match
+            .store(enabled, Ordering::Release);
+    }
+
+    pub fn array_nulls_never_match(&self) -> bool {
+        self.array_nulls_never_match.load(Ordering::Acquire)
     }
 
     pub(crate) fn clear_deferred_foreign_key_violations(&self) -> isize {

@@ -513,6 +513,7 @@ pub fn translate_insert(
         TriggerTime::Before,
         None,
         &btree_table,
+        connection.trigger_name_order(),
     );
 
     let dml_ctx =
@@ -964,6 +965,7 @@ pub fn translate_insert(
         TriggerTime::After,
         None,
         &btree_table,
+        connection.trigger_name_order(),
     );
     let has_after_triggers = !relevant_after_triggers.is_empty();
     if has_after_triggers {

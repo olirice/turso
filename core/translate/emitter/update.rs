@@ -1275,6 +1275,7 @@ fn emit_update_insns<'a>(
             TriggerTime::Before,
             Some(updated_column_indices.clone()),
             &btree_table,
+            connection.trigger_name_order(),
         ),
         None => Vec::new(),
     };
@@ -2576,6 +2577,7 @@ fn emit_update_insns<'a>(
                     TriggerTime::After,
                     Some(updated_column_indices.clone()),
                     &btree_table,
+                    connection.trigger_name_order(),
                 );
                 if !relevant_triggers.is_empty() {
                     let columns = target_table.table.columns();

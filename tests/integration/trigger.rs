@@ -2209,13 +2209,14 @@ fn test_set_new_refusals(db: TempDatabase) {
     assert!(err.contains("rowid alias"), "rowid alias: {err}");
 }
 
-/// Same-event triggers fire in NAME order: SQLite documents the relative
-/// order as undefined, so a deterministic order is free to pick, and name
-/// order is reproducible and matches PostgreSQL -- an earlier-named BEFORE
-/// trigger's effect is visible to a later-named one.
+/// With `set_trigger_name_order(true)` (the PostgreSQL-dialect opt-in),
+/// same-event triggers fire in NAME order -- an earlier-named BEFORE
+/// trigger's effect is visible to a later-named one. The default stays
+/// SQLite's schema-walk order, pinned by the conformance corpus.
 #[turso_macros::test(mvcc)]
-fn test_triggers_fire_in_name_order(db: TempDatabase) {
+fn test_triggers_fire_in_name_order_when_opted_in(db: TempDatabase) {
     let conn = db.connect_limbo();
+    conn.set_trigger_name_order(true);
     conn.execute("CREATE TABLE t (x INTEGER)").unwrap();
     conn.execute("CREATE TABLE log (s TEXT)").unwrap();
     for name in ["m_trig", "a_trig", "z_trig"] {

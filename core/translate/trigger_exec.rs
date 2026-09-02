@@ -895,6 +895,7 @@ pub fn get_triggers_including_temp(
     time: TriggerTime,
     updated_column_indices: Option<ColumnMask>,
     table: &BTreeTable,
+    name_order: bool,
 ) -> Vec<Arc<Trigger>> {
     let mut triggers: Vec<Arc<Trigger>> = resolver.with_schema(database_id, |s| {
         get_relevant_triggers_type_and_time(
@@ -914,12 +915,17 @@ pub fn get_triggers_including_temp(
         })
         .collect()
     });
-    // Within a schema, fire in NAME order: SQLite documents the relative
-    // order of same-event triggers as undefined, so a deterministic order
-    // is free to pick, and name order is both reproducible across runs and
-    // what PostgreSQL specifies -- an assignment made by an earlier-named
-    // BEFORE trigger is visible to a later-named one's WHEN clause there.
-    triggers.sort_by(|a, b| a.name.cmp(&b.name));
+    // OPT-IN (Connection::set_trigger_name_order): fire in NAME order
+    // within each schema group, which is PostgreSQL's rule -- an
+    // assignment made by an earlier-named BEFORE trigger is visible to a
+    // later-named one's WHEN clause. Off by default: this engine's own
+    // conformance corpus pins SQLite's schema-walk order
+    // (trigger-multiple-before-insert-lifo, temp-triggers-fire-first-in-
+    // creation-order), so the PostgreSQL order is a per-connection dialect
+    // choice, never the default.
+    if name_order {
+        triggers.sort_by(|a, b| a.name.cmp(&b.name));
+    }
     if database_id != crate::TEMP_DB_ID && resolver.has_temp_database() {
         let temp_triggers: Vec<Arc<Trigger>> = resolver.with_schema(crate::TEMP_DB_ID, |s| {
             get_relevant_triggers_type_and_time(s, event, time, updated_column_indices, table)
@@ -942,10 +948,12 @@ pub fn get_triggers_including_temp(
         // trigger onto the front in the same newest-first walk. The order is
         // observable whenever one trigger's changes feed another.
         // The temp group keeps its SQLite position at the front of the
-        // list; its own members fire in name order too, same rationale as
-        // the sort above (descending here because each push_front reverses).
+        // list; under name_order its own members sort by name too
+        // (descending here because each push_front reverses).
         let mut temp_triggers = temp_triggers;
-        temp_triggers.sort_by(|a, b| b.name.cmp(&a.name));
+        if name_order {
+            temp_triggers.sort_by(|a, b| b.name.cmp(&a.name));
+        }
         let mut list: std::collections::VecDeque<Arc<Trigger>> = triggers.into();
         for trigger in temp_triggers {
             list.push_front(trigger);

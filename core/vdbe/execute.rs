@@ -10785,13 +10785,21 @@ pub fn op_function(
                 check_arg_count!(arg_count, 2);
                 let a_val = state.registers[*start_reg].get_value().clone();
                 let b_val = state.registers[*start_reg + 1].get_value().clone();
-                state.registers[*dest].set_value(exec_array_overlap(&a_val, &b_val)?);
+                state.registers[*dest].set_value(exec_array_overlap(
+                    &a_val,
+                    &b_val,
+                    program.connection.array_nulls_never_match(),
+                )?);
             }
             ScalarFunc::ArrayContainsAll => {
                 check_arg_count!(arg_count, 2);
                 let a_val = state.registers[*start_reg].get_value().clone();
                 let b_val = state.registers[*start_reg + 1].get_value().clone();
-                state.registers[*dest].set_value(exec_array_contains_all(&a_val, &b_val)?);
+                state.registers[*dest].set_value(exec_array_contains_all(
+                    &a_val,
+                    &b_val,
+                    program.connection.array_nulls_never_match(),
+                )?);
             }
             ScalarFunc::StructPack
             | ScalarFunc::StructExtractFunc

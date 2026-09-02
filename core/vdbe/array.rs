@@ -645,7 +645,7 @@ pub(crate) fn exec_array_to_string(
 /// Check if two arrays have any elements in common.
 /// Returns 1 if they share at least one element, 0 otherwise.
 /// NULL if either input is not a valid array.
-pub(crate) fn exec_array_overlap(a: &Value, b: &Value) -> Result<Value> {
+pub(crate) fn exec_array_overlap(a: &Value, b: &Value, nulls_never_match: bool) -> Result<Value> {
     if matches!(a, Value::Null) || matches!(b, Value::Null) {
         return Ok(Value::Null);
     }
@@ -656,18 +656,26 @@ pub(crate) fn exec_array_overlap(a: &Value, b: &Value) -> Result<Value> {
         return Ok(Value::Null);
     };
     let (elems_a, elems_b) = coerce_sides(elems_a, elems_b)?;
-    // O(n log n + m log n) via BTreeSet instead of O(n*m)
+    // O(n log n + m log n) via BTreeSet instead of O(n*m). Under
+    // `nulls_never_match` (Connection::set_array_nulls_never_match,
+    // PostgreSQL's element-equality semantics, probed on 17.7) a NULL
+    // element matches nothing; the default keeps the engine's own pinned
+    // NULL-matching behavior (turso-sqltests/array-edge-cases.sqltest).
     let set: BTreeSet<&Value> = elems_a.iter().collect();
     let found = elems_b
         .iter()
-        .any(|eb| !matches!(eb, Value::Null) && set.contains(eb));
+        .any(|eb| (!nulls_never_match || !matches!(eb, Value::Null)) && set.contains(eb));
     Ok(Value::from_i64(found as i64))
 }
 
 /// Check if array `a` contains all elements of array `b` (@> operator).
 /// Returns 1 if every element in `b` appears in `a`, 0 otherwise.
 /// NULL if either input is not a valid array.
-pub(crate) fn exec_array_contains_all(a: &Value, b: &Value) -> Result<Value> {
+pub(crate) fn exec_array_contains_all(
+    a: &Value,
+    b: &Value,
+    nulls_never_match: bool,
+) -> Result<Value> {
     if matches!(a, Value::Null) || matches!(b, Value::Null) {
         return Ok(Value::Null);
     }
@@ -678,14 +686,15 @@ pub(crate) fn exec_array_contains_all(a: &Value, b: &Value) -> Result<Value> {
         return Ok(Value::Null);
     };
     let (elems_a, elems_b) = coerce_sides(elems_a, elems_b)?;
-    // O(n log n + m log n) via BTreeSet instead of O(n*m). `@>` is built on
-    // the element type's equality operator and `NULL = NULL` is unknown, so
-    // a NULL element in `b` can never be found (probed on 17.7): it makes
-    // containment FALSE, never vacuously true.
+    // O(n log n + m log n) via BTreeSet instead of O(n*m). Under
+    // `nulls_never_match` (PostgreSQL: `@>` is built on element equality
+    // and NULL = NULL is unknown, probed on 17.7) a NULL element in `b`
+    // makes containment FALSE, never vacuously true; the default keeps the
+    // engine's own pinned NULL-matching behavior.
     let set: BTreeSet<&Value> = elems_a.iter().collect();
     let all_found = elems_b
         .iter()
-        .all(|eb| !matches!(eb, Value::Null) && set.contains(eb));
+        .all(|eb| !(nulls_never_match && matches!(eb, Value::Null)) && set.contains(eb));
     Ok(Value::from_i64(all_found as i64))
 }
 
@@ -1062,11 +1071,11 @@ mod tests {
         let nums = values_to_record_blob(&[Value::from_i64(1), Value::from_i64(2)]).unwrap();
         let texts = Value::build_text(r#"{"2","5"}"#);
         assert_eq!(
-            exec_array_overlap(&nums, &texts).unwrap(),
+            exec_array_overlap(&nums, &texts, true).unwrap(),
             Value::from_i64(1)
         );
         let bad = Value::build_text(r#"{"2","x"}"#);
-        assert!(exec_array_overlap(&nums, &bad).is_err());
+        assert!(exec_array_overlap(&nums, &bad, true).is_err());
     }
 
     #[test]
@@ -1097,16 +1106,35 @@ mod tests {
         // NULL element in the contained side is NEVER found.
         let a = values_to_record_blob(&[Value::from_i64(1), Value::from_i64(2)]).unwrap();
         let b = values_to_record_blob(&[Value::Null]).unwrap();
-        assert_eq!(exec_array_contains_all(&a, &b).unwrap(), Value::from_i64(0));
+        assert_eq!(
+            exec_array_contains_all(&a, &b, true).unwrap(),
+            Value::from_i64(0)
+        );
         // ...not even when the containing side holds a NULL of its own.
         let a_with_null = values_to_record_blob(&[Value::from_i64(1), Value::Null]).unwrap();
         assert_eq!(
-            exec_array_contains_all(&a_with_null, &b).unwrap(),
+            exec_array_contains_all(&a_with_null, &b, true).unwrap(),
             Value::from_i64(0)
         );
         // && never matches through NULLs either.
         assert_eq!(
-            exec_array_overlap(&a_with_null, &b).unwrap(),
+            exec_array_overlap(&a_with_null, &b, true).unwrap(),
+            Value::from_i64(0)
+        );
+        // The engine's own DEFAULT keeps NULL-matching containment
+        // (turso-sqltests/array-edge-cases.sqltest pins it), including
+        // the shape those pins do not cover: a NULL in `b` with no NULL
+        // in `a` is NOT vacuously contained.
+        assert_eq!(
+            exec_array_contains_all(&a_with_null, &b, false).unwrap(),
+            Value::from_i64(1)
+        );
+        assert_eq!(
+            exec_array_overlap(&a_with_null, &b, false).unwrap(),
+            Value::from_i64(1)
+        );
+        assert_eq!(
+            exec_array_contains_all(&a, &b, false).unwrap(),
             Value::from_i64(0)
         );
     }

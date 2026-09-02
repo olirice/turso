@@ -815,6 +815,7 @@ pub fn emit_upsert(
             TriggerTime::Before,
             Some(updated_column_indices.clone()),
             &btree_table,
+            connection.trigger_name_order(),
         );
         // OLD row values are in current_start registers
         let old_registers: Vec<usize> = (0..num_cols)
@@ -1454,6 +1455,7 @@ pub fn emit_upsert(
             TriggerTime::After,
             Some(updated_column_indices),
             &btree_table,
+            connection.trigger_name_order(),
         );
         if !relevant_triggers.is_empty() {
             let new_rowid_for_trigger = new_rowid_reg.unwrap_or(ctx.conflict_rowid_reg);
