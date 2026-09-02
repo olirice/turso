@@ -4084,10 +4084,17 @@ pub fn emit_fk_child_insert_checks(
 
             let icur = open_read_index(program, idx, database_id);
 
-            // Build NEW child probe from child NEW values, apply parent-index affinities.
+            // Build NEW child probe from child NEW values in the parent
+            // INDEX's own column order (which may be a permutation of the
+            // FK's declaration order, schema.rs's parent_index_col_to_fk),
+            // and apply the parent-index affinities.
+            let index_ordered_children: Vec<&String> = match &fk_ref.parent_index_col_to_fk {
+                Some(map) => map.iter().map(|&k| &fk_ref.fk.child_columns[k]).collect(),
+                None => fk_ref.fk.child_columns.iter().collect(),
+            };
             let probe = {
                 let start = program.alloc_registers(ncols);
-                for (k, cname) in fk_ref.fk.child_columns.iter().enumerate() {
+                for (k, cname) in index_ordered_children.iter().enumerate() {
                     let (i, col) = child_tbl.get_column(cname).unwrap();
                     program.emit_insn(Insn::Copy {
                         src_reg: if col.is_rowid_alias() {

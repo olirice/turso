@@ -1148,10 +1148,17 @@ pub fn emit_fk_child_update_counters(
                         .expect("parent unique index required");
                     let icur = open_read_index(program, idx, database_id);
 
+                    // The probe key is built in the INDEX's own column
+                    // order, which may be a permutation of the FK's
+                    // declaration order (schema.rs's parent_index_col_to_fk).
+                    let probe_positions: Vec<usize> = match &fk_ref.parent_index_col_to_fk {
+                        Some(map) => map.iter().map(|&k| fk_col_positions[k]).collect(),
+                        None => fk_col_positions.clone(),
+                    };
                     let probe = copy_context_columns_with_affinity(
                         program,
                         &dml_ctx,
-                        &fk_col_positions,
+                        &probe_positions,
                         idx,
                         &parent_tbl,
                     );
@@ -1298,10 +1305,16 @@ pub fn emit_fk_child_update_counters(
                 .expect("parent unique index required");
             let icur = open_read_index(program, idx, database_id);
 
-            // Build NEW probe (in FK child column order, aligns with parent index columns)
+            // Build NEW probe in the parent INDEX's own column order, which
+            // may be a permutation of the FK's declaration order
+            // (schema.rs's parent_index_col_to_fk).
+            let index_ordered_children: Vec<&String> = match &fk_ref.parent_index_col_to_fk {
+                Some(map) => map.iter().map(|&k| &fk_ref.fk.child_columns[k]).collect(),
+                None => fk_ref.fk.child_columns.iter().collect(),
+            };
             let probe = {
                 let start = program.alloc_registers(ncols);
-                for (k, cname) in fk_ref.fk.child_columns.iter().enumerate() {
+                for (k, cname) in index_ordered_children.iter().enumerate() {
                     let (i, col) = child_tbl.get_column(cname).unwrap();
                     program.emit_insn(Insn::Copy {
                         src_reg: if col.is_rowid_alias() {

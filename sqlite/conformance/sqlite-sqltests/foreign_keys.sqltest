@@ -4334,3 +4334,52 @@ test fk-deferred-null-parent-key-does-not-repay {
 }
 expect error {
 }
+
+# A composite FK may list the parent key columns in a different order than
+# the unique index that enforces them: sqlite3's fkLocateIndex matches the
+# parent columns as a set and probes in the index's own order. This used to
+# refuse with "foreign key mismatch", and after the locate was fixed the
+# insert probe still built its index key in declaration order, refusing
+# every valid child row.
+@cross-check-integrity
+test fk-permuted-parent-key-columns-resolve {
+    PRAGMA foreign_keys=ON;
+    CREATE TABLE s(id INT, code TEXT, PRIMARY KEY(id, code));
+    CREATE TABLE si(id INT, code TEXT, PRIMARY KEY(id, code),
+                    FOREIGN KEY (code, id) REFERENCES s(code, id));
+    INSERT INTO s VALUES (1,'a'), (2,'b');
+    INSERT INTO si VALUES (1,'a');
+    INSERT INTO si VALUES (2,'b');
+    SELECT id, code FROM si ORDER BY id;
+}
+expect {
+    1|a
+    2|b
+}
+
+@cross-check-integrity
+test fk-permuted-parent-key-still-refuses-a-missing-parent {
+    PRAGMA foreign_keys=ON;
+    CREATE TABLE s(id INT, code TEXT, PRIMARY KEY(id, code));
+    CREATE TABLE si(id INT, code TEXT, PRIMARY KEY(id, code),
+                    FOREIGN KEY (code, id) REFERENCES s(code, id));
+    INSERT INTO s VALUES (1,'a');
+    INSERT INTO si VALUES (9,'z');
+}
+expect error {
+}
+
+@cross-check-integrity
+test fk-permuted-parent-key-cascades {
+    PRAGMA foreign_keys=ON;
+    CREATE TABLE s(id INT, code TEXT, PRIMARY KEY(id, code));
+    CREATE TABLE si(id INT, code TEXT, PRIMARY KEY(id, code),
+                    FOREIGN KEY (code, id) REFERENCES s(code, id) ON DELETE CASCADE);
+    INSERT INTO s VALUES (1,'a'), (2,'b');
+    INSERT INTO si VALUES (1,'a'), (2,'b');
+    DELETE FROM s WHERE id = 1;
+    SELECT id, code FROM si;
+}
+expect {
+    2|b
+}

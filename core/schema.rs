@@ -2554,26 +2554,47 @@ impl Schema {
                 })
         };
 
-        let parent_unique_index = if parent_uses_rowid {
-            None
+        let (parent_unique_index, parent_index_col_to_fk) = if parent_uses_rowid {
+            (None, None)
         } else {
-            let found = self
-                .get_indices(&parent_tbl.name)
-                .find(|idx| {
-                    idx.unique
-                        && idx.where_clause.is_none()
-                        && idx.columns.len() == parent_cols.len()
-                        && idx
-                            .columns
-                            .iter()
-                            .zip(parent_cols.iter())
-                            .all(|(ic, pc)| ic.name.eq_ignore_ascii_case(pc))
-                })
-                .cloned();
+            // SQLite's fkLocateIndex matches the parent columns as a SET: a
+            // unique index over the same columns in ANY order enforces the
+            // key (probed against sqlite3: `FOREIGN KEY (code, id)
+            // REFERENCES s(code, id)` with `PRIMARY KEY (id, code)` is
+            // accepted). Record the permutation so the probe sites can
+            // build index keys in the index's own order.
+            let found = self.get_indices(&parent_tbl.name).find_map(|idx| {
+                if !idx.unique
+                    || idx.where_clause.is_some()
+                    || idx.columns.len() != parent_cols.len()
+                {
+                    return None;
+                }
+                let mut col_to_fk: Vec<usize> = Vec::with_capacity(idx.columns.len());
+                for ic in idx.columns.iter() {
+                    let fk_ordinal = parent_cols
+                        .iter()
+                        .position(|pc| ic.name.eq_ignore_ascii_case(pc))?;
+                    if col_to_fk.contains(&fk_ordinal) {
+                        return None;
+                    }
+                    col_to_fk.push(fk_ordinal);
+                }
+                Some((idx.clone(), col_to_fk))
+            });
             if require_unique && found.is_none() {
                 return Err(fk_mismatch_err(&child.name, &parent_tbl.name));
             }
-            found
+            match found {
+                Some((idx, col_to_fk)) => {
+                    let identity = col_to_fk.iter().enumerate().all(|(j, &k)| j == k);
+                    (
+                        Some(idx),
+                        (!identity).then(|| col_to_fk.into_boxed_slice()),
+                    )
+                }
+                None => (None, None),
+            }
         };
 
         fk.validate()?;
@@ -2585,6 +2606,7 @@ impl Schema {
             parent_pos: parent_pos.into_boxed_slice(),
             parent_uses_rowid,
             parent_unique_index,
+            parent_index_col_to_fk,
         })
     }
 
@@ -5176,6 +5198,15 @@ pub struct ResolvedFkRef {
     /// For non-rowid parents: the UNIQUE index that enforces the parent key.
     /// (None when `parent_uses_rowid == true`.)
     pub parent_unique_index: Option<Arc<Index>>,
+    /// For parent-index column `j`, the FK ordinal (the position in
+    /// `parent_cols`/`fk.child_columns`) that column enforces. `None` when
+    /// the index columns already match `parent_cols` in declaration order
+    /// (the common case) or when the parent key is the rowid. SQLite's own
+    /// `fkLocateIndex` accepts a permuted parent-column list --
+    /// `FOREIGN KEY (code, id) REFERENCES s(code, id)` against
+    /// `PRIMARY KEY (id, code)` is valid -- so the probe sites use this to
+    /// build index keys in INDEX order rather than declaration order.
+    pub parent_index_col_to_fk: Option<BoxedSlice<usize>>,
 }
 
 impl ResolvedFkRef {
