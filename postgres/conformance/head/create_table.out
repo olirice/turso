@@ -1,0 +1,68 @@
+--
+-- CREATE TABLE
+--
+-- Converted from pg/head/tests/create_table.rs: behaviors both PostgreSQL
+-- 18 and the head admit identically. Recorded from real PostgreSQL 18 (see
+-- README.md); never edited by hand.
+--
+-- A bare syntax error still has no Rust-side counterpart here: pg_query's
+-- public API discards libpg_query's cursorpos for a parse error, so the
+-- head cannot yet attach the position PostgreSQL 18 reports for one. That
+-- gap is reported separately (see README.md), not papered over; the
+-- corresponding cases stay as Rust tests in pg/head/tests/create_table.rs.
+-- What PostgreSQL admits and the head refuses outright lives in
+-- head/refusals.sql instead.
+--
+-- a superuser creates a table
+CREATE TABLE notes (id integer PRIMARY KEY, body text NOT NULL, views bigint);
+-- a fresh session still sees the table through the catalog
+\c
+CREATE TABLE notes (id integer);
+ERROR:  relation "notes" already exists
+-- duplicate columns are rejected
+CREATE TABLE dup_col (a integer, a text);
+ERROR:  column "a" specified more than once
+-- unusual identifiers all create normally; postgres names never leak as a
+-- special case
+CREATE TABLE weird_names_1 (id integer);
+CREATE TABLE "Weird_Names_1" (id integer);
+CREATE TABLE "a.b" ("x.y" integer, "X.Y" integer);
+CREATE TABLE __pgcat_roles (id integer);
+CREATE TABLE sqlite_schema (id integer);
+CREATE TABLE rel_16384 (col_1 integer);
+-- a primary key index is a relation, and gets a free name on collision
+CREATE TABLE pk_notes (id integer PRIMARY KEY);
+CREATE TABLE pk_notes_pkey (id integer);
+ERROR:  relation "pk_notes_pkey" already exists
+CREATE TABLE pk_a_pkey (id integer);
+CREATE TABLE pk_a (id integer PRIMARY KEY);
+CREATE TABLE pk_a_pkey1 (id integer);
+ERROR:  relation "pk_a_pkey1" already exists
+-- a column type that does not exist is refused the way PostgreSQL itself
+-- refuses it, pointing at the type name
+CREATE TABLE t_frobozz (id frobozz);
+ERROR:  type "frobozz" does not exist
+LINE 1: CREATE TABLE t_frobozz (id frobozz);
+                                   ^
+CREATE TABLE t_frobozz (id pg_catalog.frobozz);
+ERROR:  type "pg_catalog.frobozz" does not exist
+LINE 1: CREATE TABLE t_frobozz (id pg_catalog.frobozz);
+                                   ^
+-- multiple primary keys are rejected, pointing at the second PRIMARY KEY.
+-- Kept to 59 characters or fewer (psql's own LINE excerpt clips a longer
+-- statement with "...", which the runner does not yet emulate; see
+-- README.md), hence "int" and one-letter names rather than the Rust
+-- test's "integer"/"t".
+CREATE TABLE p (a int PRIMARY KEY, b int PRIMARY KEY);
+ERROR:  multiple primary keys for table "p" are not allowed
+LINE 1: CREATE TABLE p (a int PRIMARY KEY, b int PRIMARY KEY);
+                                                 ^
+-- definition errors are reported in PostgreSQL's own order: multiple
+-- primary keys and duplicate columns are both caught before "notes"
+-- (already created above) is found to already exist
+CREATE TABLE notes (a int PRIMARY KEY, a int PRIMARY KEY);
+ERROR:  multiple primary keys for table "notes" are not allowed
+LINE 1: CREATE TABLE notes (a int PRIMARY KEY, a int PRIMARY KEY);
+                                                     ^
+CREATE TABLE notes (a integer, a integer);
+ERROR:  column "a" specified more than once

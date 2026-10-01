@@ -25,7 +25,7 @@ SQLTEST := cargo run --manifest-path $(RUNNER_DIR)/Cargo.toml --bin sqltest $(CA
 # Test corpora (relative to this directory)
 PG_TESTS := pg-sqltests
 
-.PHONY: all build build-tursopg build-runner check run test run-one run-upstream clean
+.PHONY: all build build-tursopg build-runner check run test run-one run-upstream run-head record-head clean
 
 # Build everything
 all: build
@@ -61,6 +61,17 @@ run-one: build
 # regressions in blessed tests or unblessed new passes fail the run.
 run-upstream:
 	./run.py
+
+# Run postgres/conformance/head/ against a fresh pg-head-server (see
+# head/README.md). Every test here must pass; there is no known-bad list.
+run-head:
+	./head.py run
+
+# Re-record postgres/conformance/head/*.sql expected transcripts. Needs
+# $PG_BIN (a PostgreSQL 18 bin directory) for the PostgreSQL-authored
+# files; see head/README.md.
+record-head:
+	./head.py record
 
 # Clean build artifacts
 clean:

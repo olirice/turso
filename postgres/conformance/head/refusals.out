@@ -1,0 +1,425 @@
+--
+-- Head refusals
+--
+-- Statements PostgreSQL 18 admits (checked against a live server) but the
+-- head refuses by design, because the feature is outside its closed,
+-- admitted set. Head-authored: recorded from a fresh pg-head-server, a
+-- reviewed snapshot, never from PostgreSQL. Do not mix this file's
+-- expectations with a PostgreSQL-recorded one.
+--
+-- refused by name: outside the admitted statement set
+CREATE TABLE refusal_notes (id integer);
+DROP TABLE refusal_notes;
+ERROR:  DROP TABLE refusal_notes is not supported
+-- a column default is not supported
+CREATE TABLE t_default (id integer DEFAULT 1);
+ERROR:  a column with DEFAULT is not supported
+-- a column UNIQUE constraint is not supported
+CREATE TABLE t_unique (id integer UNIQUE);
+ERROR:  UNIQUE is not supported
+-- a table constraint is not supported (only a single-column PRIMARY KEY on
+-- the column definition itself is)
+CREATE TABLE t_tableconstraint (id integer, PRIMARY KEY (id));
+ERROR:  CREATE TABLE with table constraints is not supported
+-- a column's STORAGE clause is not supported
+CREATE TABLE t_storage (id integer PRIMARY KEY, body text STORAGE EXTERNAL);
+ERROR:  a column with STORAGE is not supported
+-- a named PRIMARY KEY constraint is not supported (its catalog name is
+-- always synthesized, matching PostgreSQL's own default naming)
+CREATE TABLE t_namedpk (id integer CONSTRAINT my_pk PRIMARY KEY);
+ERROR:  a named constraint is not supported
+-- a PRIMARY KEY's own storage parameter (WITH (...)) is not supported
+CREATE TABLE t_pkopts (id integer PRIMARY KEY WITH (fillfactor=70));
+ERROR:  a constraint storage parameter is not supported
+-- a PRIMARY KEY's own index tablespace (USING INDEX TABLESPACE) is not
+-- supported
+CREATE TABLE t_pktbs (id integer PRIMARY KEY USING INDEX TABLESPACE pg_default);
+ERROR:  USING INDEX is not supported
+-- IF NOT EXISTS is not supported
+CREATE TABLE IF NOT EXISTS t_ifnotexists (id integer);
+ERROR:  CREATE TABLE with IF NOT EXISTS is not supported
+-- TEMPORARY tables are not supported
+CREATE TEMP TABLE t_temp (id integer);
+ERROR:  TEMPORARY or UNLOGGED tables is not supported
+-- a column type other than integer, bigint or text is not supported
+CREATE TABLE t_nametype (id name);
+ERROR:  column type name is not supported
+-- a type modifier is not supported
+CREATE TABLE t_typemod (name varchar(10));
+ERROR:  type modifiers is not supported
+-- a schema other than public or pg_catalog is not supported
+CREATE TABLE other.t_otherschema (id integer);
+ERROR:  schemas other than public and pg_catalog is not supported
+-- an identifier longer than 63 bytes is not supported (PostgreSQL instead
+-- truncates it and succeeds; see README.md)
+CREATE TABLE xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx (id integer);
+ERROR:  identifiers longer than 63 bytes is not supported
+-- a Unicode escape identifier is not supported
+CREATE TABLE U&"notes2" (id integer);
+ERROR:  Unicode escape identifiers (U&"...") is not supported
+--
+-- SELECT: head refusals
+--
+-- Converted from pg/head/tests/queries.rs.
+--
+CREATE TABLE rf_dept (id integer PRIMARY KEY, name text);
+CREATE TABLE rf_emp (id integer PRIMARY KEY, dept_id integer, name text);
+INSERT INTO rf_dept VALUES (1, 'eng');
+INSERT INTO rf_emp VALUES (1, 1, 'alice');
+-- DISTINCT ON is not supported
+SELECT DISTINCT ON (dept_id) name FROM rf_emp;
+ERROR:  DISTINCT ON is not supported
+-- LATERAL is not supported
+SELECT * FROM rf_emp JOIN LATERAL (SELECT 1) AS x ON true;
+ERROR:  LATERAL is not supported
+-- NATURAL JOIN is not supported
+SELECT * FROM rf_emp NATURAL JOIN rf_dept;
+ERROR:  NATURAL JOIN is not supported
+-- JOIN ... USING is not supported
+SELECT * FROM rf_emp JOIN rf_dept USING (id);
+ERROR:  JOIN ... USING is not supported
+-- an alias on a joined table is not supported (the head has no way to hide
+-- the inner tables' own names the way PostgreSQL does once one is given)
+SELECT * FROM (rf_emp JOIN rf_dept ON rf_emp.dept_id = rf_dept.id) AS x;
+ERROR:  an alias on a joined table is not supported
+-- a FROM-clause subquery without an alias is refused (PostgreSQL 18 itself
+-- admits this; the head keeps the older SQL-92 requirement, so this is the
+-- one entry here refused as a syntax error rather than 0A000)
+SELECT * FROM (SELECT id FROM rf_dept);
+ERROR:  subquery in FROM must have an alias
+-- ROWS FROM with more than one function is not supported
+SELECT * FROM ROWS FROM (unnest('{1}'::oid[]), unnest('{2}'::oid[])) AS x(a, b);
+ERROR:  ROWS FROM with anything other than one function is not supported
+-- unnest over more than one array argument is not supported (PostgreSQL 18
+-- has its own multi-array unnest(anyarray, anyarray, ...) overload; the
+-- head has no such overload and refuses by name instead)
+SELECT * FROM unnest('{1,2}'::pg_catalog.oid[], '{3,4}'::pg_catalog.oid[]) AS x(v);
+ERROR:  function unnest(_oid, _oid) does not exist
+LINE 1: SELECT * FROM unnest('{1,2}'::pg_catalog.oid[], '{3,4}'::pg_...
+                      ^
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
+--
+-- expressions: head refusals
+--
+-- Converted from pg/head/tests/expressions.rs.
+--
+CREATE ROLE rf_bob2 LOGIN;
+CREATE TABLE rf_expr_t (id integer PRIMARY KEY);
+GRANT SELECT ON rf_expr_t TO rf_bob2;
+-- an IN list in a policy's USING expression is not supported (it stores as
+-- PostgreSQL's own "= ANY (ARRAY[...])" text, which this parser does not
+-- admit back in)
+CREATE POLICY p ON rf_expr_t FOR SELECT TO rf_bob2 USING (id IN (4, 5, 6));
+ERROR:  an IN list in a policy's USING expression is not supported
+CREATE POLICY q ON rf_expr_t FOR SELECT TO rf_bob2 USING (id NOT IN (1, 2, 3));
+ERROR:  an IN list in a policy's USING expression is not supported
+-- INSERT VALUES admits only a literal or a cast of a literal, not an
+-- arbitrary expression
+CREATE TABLE rf_expr_scratch (id integer PRIMARY KEY, flag text);
+INSERT INTO rf_expr_scratch VALUES (5, CASE WHEN 5 = 5 THEN 't' ELSE 'f' END);
+ERROR:  an expression other than a literal or a cast of a literal is not supported
+--
+-- pg_get_functions: head refusals
+--
+-- Converted from pg/head/tests/pg_get_functions.rs.
+--
+CREATE TABLE rf_fg_t (id integer PRIMARY KEY);
+-- a catalog-rendered function is refused outside a select list (kept short:
+-- see this file's expression-positions section on the LINE clip)
+SELECT 1 WHERE pg_get_constraintdef(1::oid)='x';
+ERROR:  pg_get_constraintdef in WHERE is not supported
+LINE 1: SELECT 1 WHERE pg_get_constraintdef(1::oid)='x';
+                       ^
+-- tableoid in a policy's USING expression is not supported: this renderer
+-- cannot reproduce PostgreSQL 18's pg_get_expr text for it, so it is
+-- refused at CREATE POLICY time instead of stored wrong
+CREATE POLICY r ON rf_fg_t FOR SELECT USING (tableoid = 0);
+ERROR:  tableoid in a policy's USING expression is not supported
+--
+-- pg_catalog: head refusals
+--
+-- Converted from pg/head/tests/pg_catalog.rs.
+--
+CREATE ROLE rf_pc_alice LOGIN;
+-- GRANT on a catalog relation is not supported
+GRANT SELECT ON pg_class TO rf_pc_alice;
+ERROR:  GRANT on pg_catalog relation "pg_class" is not supported
+-- a regproc cast from a name is not supported
+SELECT 'pg_is_in_recovery'::regproc;
+ERROR:  a regproc cast from a name is not supported
+--
+-- session: head refusals
+--
+-- Converted from pg/head/tests/session.rs.
+--
+CREATE TABLE rf_sn_t (id integer PRIMARY KEY, owner text);
+INSERT INTO rf_sn_t VALUES (1, 'x');
+-- SET statement_timeout to a nonzero value is not supported
+SET statement_timeout = 5000;
+ERROR:  SET statement_timeout TO 5000 is not supported
+-- only the serializable, read committed and read uncommitted isolation
+-- levels are refused; repeatable read (the engine's own isolation level)
+-- is admitted elsewhere
+BEGIN;
+SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;
+ERROR:  the serializable isolation level is not supported
+ROLLBACK;
+BEGIN;
+SET TRANSACTION ISOLATION LEVEL READ COMMITTED;
+ERROR:  the read committed isolation level is not supported
+ROLLBACK;
+BEGIN;
+SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
+ERROR:  the read uncommitted isolation level is not supported
+ROLLBACK;
+BEGIN ISOLATION LEVEL SERIALIZABLE;
+ERROR:  the serializable isolation level is not supported
+ROLLBACK;
+-- LOCK TABLE in a mode other than ACCESS SHARE is not supported
+BEGIN;
+LOCK TABLE rf_sn_t IN EXCLUSIVE MODE;
+ERROR:  LOCK TABLE in modes other than ACCESS SHARE is not supported
+ROLLBACK;
+-- a non-constant argument to a session function outside a top-level
+-- select item is not supported
+SELECT 1 FROM rf_sn_t WHERE current_setting(owner) = 'x';
+ERROR:  a non-constant argument to current_setting outside a top-level select item is not supported
+LINE 1: SELECT 1 FROM rf_sn_t WHERE current_setting(owner) = 'x';
+                                    ^
+-- a dotted, unrecognized name is refused like any other unrecognized
+-- setting (PostgreSQL 18 silently accepts one as a placeholder GUC, used
+-- by extensions and PostgREST-style JWT claim settings; storing an
+-- arbitrary placeholder GUC's value is a real feature the head does not
+-- have yet)
+SET request.jwt.claims = '{}';
+ERROR:  unrecognized configuration parameter "request.jwt.claims"
+--
+-- rows: head refusals
+--
+-- Converted from pg/head/tests/rows.rs.
+--
+-- SELECT with no columns is not supported
+SELECT FROM rf_emp;
+ERROR:  SELECT with no columns is not supported
+-- the ~ operator is not supported
+SELECT * FROM rf_emp WHERE name ~ 'x';
+ERROR:  the operator ~ is not supported
+-- SELECT with FOR UPDATE or FOR SHARE is not supported
+SELECT * FROM rf_emp FOR UPDATE;
+ERROR:  SELECT with FOR UPDATE or FOR SHARE is not supported
+--
+-- GRANT and role forms: head refusals
+--
+-- Converted from pg/head/tests/grants.rs.
+--
+CREATE ROLE rf_gr_bob LOGIN;
+CREATE TABLE rf_gr_notes (id integer PRIMARY KEY, body text);
+-- a column privilege is not supported
+GRANT SELECT (id) ON rf_gr_notes TO rf_gr_bob;
+ERROR:  column privileges is not supported
+-- GRANT with GRANT OPTION is not supported
+GRANT SELECT ON rf_gr_notes TO rf_gr_bob WITH GRANT OPTION;
+ERROR:  GRANT with GRANT OPTION is not supported
+-- GRANT to CURRENT_USER (or CURRENT_ROLE, SESSION_USER) is not supported
+GRANT SELECT ON rf_gr_notes TO CURRENT_USER;
+ERROR:  GRANT to CURRENT_ROLE, CURRENT_USER or SESSION_USER is not supported
+-- REVOKE is not supported
+REVOKE SELECT ON rf_gr_notes FROM rf_gr_bob;
+ERROR:  REVOKE is not supported
+-- the role option SUPERUSER is not supported
+CREATE ROLE rf_gr_carol SUPERUSER;
+ERROR:  the role option superuser is not supported
+-- CREATE USER and CREATE GROUP are not supported
+CREATE USER rf_gr_dave;
+ERROR:  CREATE USER and CREATE GROUP is not supported
+--
+-- Row-level security forms: head refusals
+--
+-- Converted from pg/head/tests/row_security.rs.
+--
+CREATE ROLE rf_rs_bob LOGIN;
+CREATE TABLE rf_rs_notes (id integer PRIMARY KEY);
+-- CREATE POLICY for commands other than SELECT, including an omitted FOR,
+-- is not supported
+CREATE POLICY rf_rs_p1 ON rf_rs_notes USING (id = 1);
+ERROR:  CREATE POLICY for commands other than SELECT, including an omitted FOR is not supported
+CREATE POLICY rf_rs_p2 ON rf_rs_notes FOR INSERT WITH CHECK (id = 1);
+ERROR:  CREATE POLICY for commands other than SELECT, including an omitted FOR is not supported
+-- AS RESTRICTIVE is not supported
+CREATE POLICY rf_rs_p3 ON rf_rs_notes AS RESTRICTIVE FOR SELECT USING (id = 1);
+ERROR:  AS RESTRICTIVE is not supported
+-- CREATE POLICY without USING is not supported
+CREATE POLICY rf_rs_p4 ON rf_rs_notes FOR SELECT;
+ERROR:  CREATE POLICY without USING is not supported
+-- PUBLIC combined with other roles is not supported
+CREATE POLICY rf_rs_p5 ON rf_rs_notes FOR SELECT TO PUBLIC, rf_rs_bob USING (id = 1);
+ERROR:  PUBLIC combined with other roles is not supported
+-- ALTER TABLE subcommands other than ROW LEVEL SECURITY are not supported
+ALTER TABLE rf_rs_notes ADD COLUMN extra text;
+ERROR:  ALTER TABLE subcommands other than ROW LEVEL SECURITY is not supported
+-- ALTER TABLE IF EXISTS is not supported
+ALTER TABLE IF EXISTS rf_rs_notes ENABLE ROW LEVEL SECURITY;
+ERROR:  ALTER TABLE IF EXISTS is not supported
+--
+-- Expression positions: head refusals
+--
+-- Converted from pg/head/tests/expression_positions.rs: PostgreSQL 18
+-- admits each statement below (probed live); the head does not implement
+-- the position/feature combination.
+--
+-- Table and column names are kept short: a position-bearing statement
+-- must stay at or under 60 characters or real psql clips its LINE excerpt
+-- with "...", which the runner does not yet emulate (see README.md).
+CREATE TABLE r (a integer PRIMARY KEY, b integer);
+CREATE TABLE e2 (x integer PRIMARY KEY);
+INSERT INTO r VALUES (1, 10), (2, 20);
+-- a catalog-rendered function outside a top-level SELECT target: WHERE,
+-- JOIN/ON, ORDER BY, EXECUTE parameter, a policy's USING expression, and a
+-- function's own FROM argument (this last one needs the runner's LINE
+-- clipping: PostgreSQL 18 itself admits it, so the shortest statement that
+-- still calls the function types its argument as an undefined function
+-- instead unless it is long enough to reach the position with a real
+-- integer-returning constraint description in between).
+SELECT * FROM r WHERE pg_get_constraintdef(1::oid)='x';
+ERROR:  pg_get_constraintdef in WHERE is not supported
+LINE 1: SELECT * FROM r WHERE pg_get_constraintdef(1::oid)='x';
+                              ^
+SELECT * FROM r JOIN e2 ON pg_get_constraintdef(1::oid)='x';
+ERROR:  pg_get_constraintdef in JOIN/ON is not supported
+LINE 1: SELECT * FROM r JOIN e2 ON pg_get_constraintdef(1::oid)='x';
+                                   ^
+SELECT a FROM r ORDER BY pg_get_constraintdef(1::oid);
+ERROR:  pg_get_constraintdef in ORDER BY is not supported
+LINE 1: SELECT a FROM r ORDER BY pg_get_constraintdef(1::oid);
+                                 ^
+PREPARE re3(text) AS SELECT $1;
+EXECUTE re3(pg_get_constraintdef(1::oid));
+ERROR:  pg_get_constraintdef in EXECUTE parameter is not supported
+LINE 1: EXECUTE re3(pg_get_constraintdef(1::oid));
+                    ^
+CREATE POLICY rep ON r FOR SELECT USING (pg_get_constraintdef(1::oid) = 'x');
+ERROR:  pg_get_constraintdef in POLICY is not supported
+SELECT * FROM generate_series(1, pg_get_constraintdef(1::oid)::integer);
+ERROR:  pg_get_constraintdef in a function in FROM is not supported
+LINE 1: SELECT * FROM generate_series(1, pg_get_constraintdef(1::oid...
+                                         ^
+-- a set-returning function outside FROM: a fresh SELECT target and ORDER BY
+-- expression each multiply rows in PostgreSQL; the head does not implement
+-- either
+SELECT generate_series(1, 2) FROM r;
+ERROR:  a set-returning function in SELECT is not supported
+LINE 1: SELECT generate_series(1, 2) FROM r;
+               ^
+SELECT a FROM r ORDER BY generate_series(1, 2);
+ERROR:  a set-returning function in ORDER BY is not supported
+LINE 1: SELECT a FROM r ORDER BY generate_series(1, 2);
+                                 ^
+-- an aggregate as a fresh ORDER BY expression (as opposed to a reference to
+-- an already-typed SELECT target) is not implemented
+SELECT 1 FROM r ORDER BY array_agg(a);
+ERROR:  an aggregate function in ORDER BY is not supported
+LINE 1: SELECT 1 FROM r ORDER BY array_agg(a);
+                                 ^
+-- a subquery outside WHERE/JOIN/ON/SELECT target/ORDER BY: INSERT VALUES
+-- and a policy's USING expression
+INSERT INTO r (a) VALUES ((SELECT 1));
+ERROR:  a subquery in VALUES is not supported
+LINE 1: INSERT INTO r (a) VALUES ((SELECT 1));
+                                  ^
+CREATE POLICY resub ON r FOR SELECT USING ((SELECT true));
+ERROR:  a subquery in POLICY is not supported
+-- a cast of a catalog-rendered function's result in INSERT VALUES
+CREATE TABLE rz (id integer PRIMARY KEY, c text);
+INSERT INTO rz(id,c) VALUES(1,pg_get_constraintdef(1::oid));
+ERROR:  pg_get_constraintdef in VALUES is not supported
+LINE 1: INSERT INTO rz(id,c) VALUES(1,pg_get_constraintdef(1::oid));
+                                      ^
+-- a set-returning function in INSERT VALUES
+CREATE TABLE rz2 (a integer);
+INSERT INTO rz2 (a) VALUES (generate_series(10, 11));
+ERROR:  a set-returning function in VALUES is not supported
+LINE 1: INSERT INTO rz2 (a) VALUES (generate_series(10, 11));
+                                    ^
+--
+-- refusals.rs
+--
+-- Converted from pg/head/tests/refusals.rs.
+--
+CREATE TABLE rf_jn_dept (id integer PRIMARY KEY, name text);
+CREATE TABLE rf_jn_emp (id integer PRIMARY KEY, dept_id integer, name text);
+INSERT INTO rf_jn_dept VALUES (1, 'eng'), (2, 'sales');
+INSERT INTO rf_jn_emp VALUES (1, 1, 'alice'), (2, 1, 'bob'), (3, NULL, 'carol');
+-- RIGHT JOIN and FULL JOIN are not supported
+SELECT e.name, d.name FROM rf_jn_emp e RIGHT JOIN rf_jn_dept d ON e.dept_id = d.id;
+ERROR:  RIGHT JOIN is not supported
+SELECT e.name, d.name FROM rf_jn_emp e FULL JOIN rf_jn_dept d ON e.dept_id = d.id;
+ERROR:  FULL JOIN is not supported
+-- a deduplicating UNION is not supported (UNION ALL is; see queries.sql)
+SELECT name FROM rf_jn_dept UNION SELECT name FROM rf_jn_dept;
+ERROR:  UNION is not supported
+-- LIMIT and OFFSET are not supported
+SELECT name FROM rf_jn_emp ORDER BY name LIMIT 1;
+ERROR:  LIMIT or OFFSET is not supported
+SELECT name FROM rf_jn_emp ORDER BY name OFFSET 1;
+ERROR:  LIMIT or OFFSET is not supported
+-- an aggregate's own * is not supported; count itself is not a registered
+-- aggregate, so a real argument is an undefined-function error instead
+SELECT count(*) FROM rf_jn_emp;
+ERROR:  an aggregate's * is not supported
+SELECT count(dept_id) FROM rf_jn_emp;
+ERROR:  function count(integer) does not exist
+LINE 1: SELECT count(dept_id) FROM rf_jn_emp;
+               ^
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
+-- SHOW and RESET are not supported
+SHOW search_path;
+ERROR:  SHOW search_path is not supported
+RESET search_path;
+ERROR:  RESET is not supported
+RESET ALL;
+ERROR:  RESET is not supported
+-- DEALLOCATE (by name or ALL) is not supported
+PREPARE rf_jn_p AS SELECT 1;
+DEALLOCATE rf_jn_p;
+ERROR:  DEALLOCATE rf_jn_p is not supported
+DEALLOCATE ALL;
+ERROR:  DEALLOCATE ALL is not supported
+--
+-- authmatrix.sql gap reasons
+--
+-- One probe per reason the other 270 of authmatrix's 370 PostgreSQL-
+-- recorded scenarios cannot run on the head, with how many scenarios
+-- each reason blocks. Each probe must still be refused; when one starts
+-- succeeding, restore that reason's scenarios into authmatrix.sql from
+-- pg/head/tests/authmatrix/cells.rs in the parent of the commit "pg:
+-- move grants, row security, authmatrix and prepared statements to the
+-- corpus", which deleted it.
+--
+CREATE ROLE rf_am_owner LOGIN;
+CREATE ROLE rf_am_grantee LOGIN;
+-- the CREATEROLE role attribute is not supported (2 scenarios)
+CREATE ROLE rf_am_createrole CREATEROLE;
+ERROR:  the role option createrole is not supported
+-- role membership (GRANT of a role to a role) is not supported (68
+-- scenarios, plus 12 that also need BYPASSRLS)
+GRANT rf_am_owner TO rf_am_grantee;
+ERROR:  GRANT rf_am_owner TO rf_am_grantee is not supported
+-- the BYPASSRLS role attribute is not supported (24 scenarios)
+CREATE ROLE rf_am_bypassrls BYPASSRLS;
+ERROR:  the role option bypassrls is not supported
+-- reassigning a schema's owner is not supported (56 scenarios)
+ALTER SCHEMA public OWNER TO rf_am_owner;
+ERROR:  ALTER SCHEMA public OWNER TO rf_am_owner is not supported
+-- CREATE VIEW is not supported (30 scenarios)
+CREATE VIEW rf_am_view AS SELECT 1;
+ERROR:  CREATE VIEW rf_am_view AS SELECT 1 is not supported
+-- CREATE INDEX is not supported (30 scenarios)
+CREATE INDEX rf_am_index ON rf_am_index_t (id);
+ERROR:  CREATE INDEX rf_am_index ON rf_am_index_t USING btree (id) is not supported
+-- CREATE SEQUENCE is not supported (30 scenarios)
+CREATE SEQUENCE rf_am_sequence;
+ERROR:  CREATE SEQUENCE rf_am_sequence is not supported
+-- a schema other than public or pg_catalog is not supported (18
+-- scenarios)
+GRANT SELECT ON rf_am_s.rf_am_absent TO rf_am_grantee;
+ERROR:  schemas other than public and pg_catalog is not supported

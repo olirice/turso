@@ -1,0 +1,14 @@
+test: create_table
+test: refusals
+test: views
+test: queries
+test: rows
+test: expressions
+test: pg_get_functions
+test: pg_catalog
+test: session
+test: grants
+test: row_security
+test: expression_positions
+test: prepare_execute
+test: authmatrix

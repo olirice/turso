@@ -115,6 +115,23 @@ jobs:
       - name: Run tests
         run: make -C postgres/conformance run
 
+  pg-head-run:
+    name: Run pg head tests
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: useblacksmith/rust-cache@v3
+        with:
+          prefix-key: "v1-rust"
+      - uses: cachix/install-nix-action@v31
+      # The exact PostgreSQL the capture and transcripts came from, pinned
+      # by the flake apart from the toolchain; the tests refuse any other.
+      - name: Build pinned PostgreSQL
+        run: nix build .#postgres -o "$RUNNER_TEMP/pg18"
+      - name: Run tests
+        run: PG_BIN="$RUNNER_TEMP/pg18/bin" make test-pg-head
+
   sqltest-sqlite:
     name: Run SQL tests (SQLite)
     runs-on: blacksmith-4vcpu-ubuntu-2404

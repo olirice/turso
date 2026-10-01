@@ -1,0 +1,71 @@
+--
+-- pg_roles, pg_settings, pg_seclabels
+--
+-- Converted from pg/head/tests/views.rs: the three constant views pg_dump
+-- reads. Recorded from real PostgreSQL 18 (see README.md); never edited by
+-- hand.
+--
+-- the three views appear in pg_class with relkind 'v'
+SELECT relname, relkind FROM pg_class WHERE relname IN ('pg_roles', 'pg_settings', 'pg_seclabels') ORDER BY relname;
+   relname    | relkind 
+--------------+---------
+ pg_roles     | v
+ pg_seclabels | v
+ pg_settings  | v
+(3 rows)
+
+-- pg_seclabels has no rows but the columns pg_dump reads all exist
+SELECT objoid, classoid, objsubid, objtype, objnamespace, objname, provider, label FROM pg_seclabels;
+ objoid | classoid | objsubid | objtype | objnamespace | objname | provider | label 
+--------+----------+----------+---------+--------------+---------+----------+-------
+(0 rows)
+
+-- pg_roles lists created roles
+CREATE ROLE v_alice LOGIN;
+CREATE ROLE v_carol LOGIN;
+SELECT rolname FROM pg_roles WHERE rolname IN ('v_alice', 'v_carol') ORDER BY rolname;
+ rolname 
+---------
+ v_alice
+ v_carol
+(2 rows)
+
+-- a non-superuser reads a masked rolpassword through pg_roles, and is
+-- refused direct access to pg_authid
+\c - v_alice
+SELECT rolname, rolpassword FROM pg_roles WHERE rolname = 'v_alice';
+ rolname | rolpassword 
+---------+-------------
+ v_alice | ********
+(1 row)
+
+SELECT rolname FROM pg_authid;
+ERROR:  permission denied for table pg_authid
+-- a SET setting is read back from pg_settings and agrees with current_setting
+\c - postgres
+SET extra_float_digits = 3;
+SELECT setting FROM pg_settings WHERE name = 'extra_float_digits';
+ setting 
+---------
+ 3
+(1 row)
+
+SELECT current_setting('extra_float_digits');
+ current_setting 
+-----------------
+ 3
+(1 row)
+
+-- pg_settings preserves PostgreSQL's own mixed-case names verbatim
+SELECT name FROM pg_settings WHERE name IN ('DateStyle', 'IntervalStyle') ORDER BY name;
+     name      
+---------------
+ DateStyle
+ IntervalStyle
+(2 rows)
+
+-- writes to a view are refused the same way PostgreSQL itself refuses them
+INSERT INTO pg_roles (rolname) VALUES ('mallory');
+ERROR:  cannot insert into view "pg_roles"
+DETAIL:  Views that do not select from a single table or view are not automatically updatable.
+HINT:  To enable inserting into the view, provide an INSTEAD OF INSERT trigger or an unconditional ON INSERT DO INSTEAD rule.

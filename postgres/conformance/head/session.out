@@ -1,0 +1,312 @@
+--
+-- Sessions: settings, transactions, locking, row security opt-out
+--
+-- Converted from pg/head/tests/session.rs (with several refused-by-name
+-- cases in refusals.sql). Recorded from real PostgreSQL 18 (see
+-- README.md); never edited by hand. Names carry an sn_ prefix so they
+-- cannot collide with another file's fixtures in the shared schedule
+-- database.
+--
+CREATE ROLE sn_bob LOGIN;
+CREATE TABLE sn_notes (id integer PRIMARY KEY, owner text);
+INSERT INTO sn_notes VALUES (1, 'bob'), (2, 'carol');
+GRANT SELECT ON sn_notes TO sn_bob;
+CREATE TABLE sn_hidden (id integer);
+-- settings are accepted only at values that do not change behavior
+SET DATESTYLE = ISO;
+SET INTERVALSTYLE = POSTGRES;
+SET extra_float_digits TO 3;
+SET synchronize_seqscans TO off;
+SET statement_timeout = 0;
+SET lock_timeout = 0;
+SET idle_in_transaction_session_timeout = 0;
+SET transaction_timeout = 0;
+SET row_security = off;
+SET nosuch = 1;
+ERROR:  unrecognized configuration parameter "nosuch"
+-- an empty search path hides unqualified names
+SELECT pg_catalog.set_config('search_path', '', false);
+ set_config 
+------------
+ 
+(1 row)
+
+SELECT id FROM sn_notes;
+ERROR:  relation "sn_notes" does not exist
+LINE 1: SELECT id FROM sn_notes;
+                       ^
+CREATE TABLE sn_other (id integer);
+ERROR:  no schema has been selected to create in
+LINE 1: CREATE TABLE sn_other (id integer);
+                     ^
+SELECT id FROM public.sn_notes;
+ id 
+----
+  1
+  2
+(2 rows)
+
+SET search_path = public;
+SELECT id FROM sn_notes;
+ id 
+----
+  1
+  2
+(2 rows)
+
+-- a read-only transaction refuses writes, and a failed one refuses
+-- everything but a syntax error
+BEGIN;
+SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY;
+SELECT id FROM sn_notes;
+ id 
+----
+  1
+  2
+(2 rows)
+
+INSERT INTO sn_notes VALUES (3, 'x');
+ERROR:  cannot execute INSERT in a read-only transaction
+SELECT id FROM sn_notes;
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+COMMIT;
+SELECT id FROM sn_notes;
+ id 
+----
+  1
+  2
+(2 rows)
+
+-- a read-only transaction refuses every write statement
+BEGIN READ ONLY;
+CREATE TABLE sn_t (a integer);
+ERROR:  cannot execute CREATE TABLE in a read-only transaction
+ROLLBACK;
+BEGIN READ ONLY;
+GRANT SELECT ON sn_notes TO sn_bob;
+ERROR:  cannot execute GRANT in a read-only transaction
+ROLLBACK;
+BEGIN READ ONLY;
+CREATE ROLE sn_carol LOGIN;
+ERROR:  cannot execute CREATE ROLE in a read-only transaction
+ROLLBACK;
+BEGIN READ ONLY;
+CREATE POLICY p ON sn_notes FOR SELECT USING (id = 1);
+ERROR:  cannot execute CREATE POLICY in a read-only transaction
+ROLLBACK;
+BEGIN READ ONLY;
+ALTER TABLE sn_notes ENABLE ROW LEVEL SECURITY;
+ERROR:  cannot execute ALTER TABLE in a read-only transaction
+ROLLBACK;
+-- SET TRANSACTION READ WRITE after a query is too late
+BEGIN READ ONLY;
+SELECT id FROM sn_notes;
+ id 
+----
+  1
+  2
+(2 rows)
+
+SET TRANSACTION READ WRITE;
+ERROR:  transaction read-write mode must be set before any query
+ROLLBACK;
+-- the isolation level must be set before any query
+BEGIN;
+SELECT id FROM sn_notes;
+ id 
+----
+  1
+  2
+(2 rows)
+
+SET TRANSACTION READ ONLY;
+SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;
+ERROR:  SET TRANSACTION ISOLATION LEVEL must be called before any query
+ROLLBACK;
+-- a rolled-back transaction leaves nothing, and a committed one is visible
+BEGIN;
+INSERT INTO sn_notes VALUES (3, 'x');
+ROLLBACK;
+\c
+SELECT id FROM sn_notes;
+ id 
+----
+  1
+  2
+(2 rows)
+
+BEGIN;
+INSERT INTO sn_notes VALUES (3, 'x');
+COMMIT;
+\c
+SELECT id FROM sn_notes;
+ id 
+----
+  1
+  2
+  3
+(3 rows)
+
+-- a setting changed in a rolled-back transaction is restored
+BEGIN;
+SET search_path = '';
+ROLLBACK;
+SELECT id FROM sn_notes;
+ id 
+----
+  1
+  2
+  3
+(3 rows)
+
+-- LOCK TABLE needs a transaction and a privilege
+\c - sn_bob
+LOCK TABLE sn_hidden IN ACCESS SHARE MODE;
+ERROR:  LOCK TABLE can only be used in transaction blocks
+BEGIN;
+LOCK TABLE public.sn_notes IN ACCESS SHARE MODE;
+LOCK TABLE sn_hidden IN ACCESS SHARE MODE;
+ERROR:  permission denied for table sn_hidden
+ROLLBACK;
+-- LOCK TABLE does not count as the transaction's first query
+BEGIN;
+LOCK TABLE sn_notes IN ACCESS SHARE MODE;
+SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;
+ROLLBACK;
+\c - postgres
+-- in a failed transaction, only a syntax error (kept in session.rs: see
+-- README.md's known gaps on bare syntax errors having no position) comes
+-- before the aborted-transaction error
+BEGIN;
+SELECT id FROM sn_nosuch_rel;
+ERROR:  relation "sn_nosuch_rel" does not exist
+LINE 1: SELECT id FROM sn_nosuch_rel;
+                       ^
+DROP TABLE sn_notes;
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ROLLBACK;
+-- SET LOCAL and set_config(..., true) revert at both COMMIT and ROLLBACK
+SET search_path = 'base';
+BEGIN;
+SET LOCAL search_path = 'local';
+SELECT current_setting('search_path');
+ current_setting 
+-----------------
+ local
+(1 row)
+
+COMMIT;
+SELECT current_setting('search_path');
+ current_setting 
+-----------------
+ base
+(1 row)
+
+BEGIN;
+SET LOCAL search_path = 'local';
+SELECT current_setting('search_path');
+ current_setting 
+-----------------
+ local
+(1 row)
+
+ROLLBACK;
+SELECT current_setting('search_path');
+ current_setting 
+-----------------
+ base
+(1 row)
+
+BEGIN;
+SELECT set_config('search_path', 'local2', true);
+ set_config 
+------------
+ local2
+(1 row)
+
+SELECT current_setting('search_path');
+ current_setting 
+-----------------
+ local2
+(1 row)
+
+COMMIT;
+SELECT current_setting('search_path');
+ current_setting 
+-----------------
+ base
+(1 row)
+
+BEGIN;
+SELECT set_config('search_path', 'local2', true);
+ set_config 
+------------
+ local2
+(1 row)
+
+SELECT current_setting('search_path');
+ current_setting 
+-----------------
+ local2
+(1 row)
+
+ROLLBACK;
+SELECT current_setting('search_path');
+ current_setting 
+-----------------
+ base
+(1 row)
+
+-- current_setting of an unknown setting errors, and missing_ok returns NULL
+SELECT current_setting('nosuch');
+ERROR:  unrecognized configuration parameter "nosuch"
+SELECT current_setting('nosuch', true);
+ current_setting 
+-----------------
+ 
+(1 row)
+
+-- an unregistered function is refused
+SELECT no_such_function(1);
+ERROR:  function no_such_function(integer) does not exist
+LINE 1: SELECT no_such_function(1);
+               ^
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
+SET search_path = public;
+-- a session function with a non-constant argument is evaluated per row
+CREATE TABLE sn_setting_names (name text);
+INSERT INTO sn_setting_names VALUES ('search_path'), ('row_security');
+SELECT current_setting(name) FROM sn_setting_names;
+ current_setting 
+-----------------
+ public
+ on
+(2 rows)
+
+-- set_config over rows applies every row in order
+CREATE TABLE sn_greetings (value text);
+INSERT INTO sn_greetings VALUES ('first'), ('second');
+SELECT set_config('search_path', value, false) FROM sn_greetings;
+ set_config 
+------------
+ first
+ second
+(2 rows)
+
+SELECT current_setting('search_path');
+ current_setting 
+-----------------
+ second
+(1 row)
+
+-- two sessions see each other's committed DDL
+CREATE TABLE sn_shared_ddl (id integer);
+ERROR:  no schema has been selected to create in
+LINE 1: CREATE TABLE sn_shared_ddl (id integer);
+                     ^
+\c
+SELECT relname FROM pg_class WHERE relname = 'sn_shared_ddl';
+ relname 
+---------
+(0 rows)
+

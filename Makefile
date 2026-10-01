@@ -81,6 +81,11 @@ test-sqltest-pg:
 	@make -C postgres/conformance run
 .PHONY: test-sqltest-pg
 
+test-pg-head:
+	cargo test -p turso_pg_head -p turso_pg_head_wire
+	@make -C postgres/conformance run-head
+.PHONY: test-pg-head
+
 test-extensions: build uv-sync-test
 	RUST_LOG=$(RUST_LOG) uv run --package turso_test test-extensions
 .PHONY: test-extensions
