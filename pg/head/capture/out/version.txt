@@ -1,0 +1,1 @@
+PostgreSQL 18.6 on aarch64-apple-darwin25.6.0, compiled by clang version 21.1.8, 64-bit

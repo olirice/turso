@@ -7289,6 +7289,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "turso_pg_head"
+version = "0.8.0"
+dependencies = [
+ "parking_lot",
+ "pg_query",
+ "serde_json",
+ "turso_core",
+ "turso_ext",
+ "turso_parser",
+]
+
+[[package]]
 name = "turso_pg_parser"
 version = "0.8.0"
 dependencies = [

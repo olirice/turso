@@ -1,6 +1,10 @@
 {
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs?ref=nixos-unstable";
+    # PostgreSQL 18.6, the build pg/head's capture and recorded transcripts
+    # came from. Pinned apart from nixpkgs so a toolchain bump never
+    # changes pg_dump's output under the pg_dump round-trip tests.
+    nixpkgs-postgres.url = "github:nixos/nixpkgs/f45c6f04c2f013f004bf94e284e95d72898d9393";
     flake-utils.url = "github:numtide/flake-utils";
     crane.url = "github:ipetkov/crane";
     rust-overlay = {
@@ -9,7 +13,7 @@
     };
   };
 
-  outputs = { nixpkgs, flake-utils, rust-overlay, crane, ... }:
+  outputs = { nixpkgs, nixpkgs-postgres, flake-utils, rust-overlay, crane, ... }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs {
@@ -23,6 +27,8 @@
         };
 
         lib = pkgs.lib;
+
+        postgres = (import nixpkgs-postgres { inherit system; }).postgresql_18;
 
         # Custom SQLite package with debug enabled
         sqlite-debug = pkgs.sqlite.overrideAttrs (oldAttrs: rec {
@@ -62,6 +68,7 @@
           cargoExtraArgs = "--package turso_cli";
         });
         packages.default = packages.turso_cli;
+        packages.postgres = postgres;
         devShells.default = with pkgs; mkShell {
           nativeBuildInputs = [
             clang
@@ -72,6 +79,7 @@
             nodejs
             toolchain
             uv
+            postgres
           ] ++ lib.optionals pkgs.stdenv.isDarwin [
             apple-sdk
           ];

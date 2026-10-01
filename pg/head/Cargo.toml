@@ -1,0 +1,56 @@
+[package]
+name = "turso_pg_head"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "A minimal PostgreSQL head for Turso where every statement must pass authorization and row security before it reaches the engine"
+publish = false
+
+[dependencies]
+parking_lot = { workspace = true }
+pg_query = "6.1"
+turso_core = { workspace = true }
+turso_ext = { workspace = true, features = ["core_only"] }
+turso_parser = { workspace = true }
+
+[build-dependencies]
+serde_json = { workspace = true }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(loom)', 'cfg(shuttle)', 'cfg(antithesis)', 'cfg(nightly)'] }
+# For now allow this for the allocator api migration
+unstable_name_collisions = "allow"
+unsafe_code = "deny"
+
+[lints.clippy]
+# Workspace lints (Cargo cannot combine `workspace = true` with crate additions).
+await_holding_lock = "deny"
+or_fun_call = "deny"
+clear_with_drain = "deny"
+collection_is_never_read = "deny"
+naive_bytecount = "deny"
+stable_sort_primitive = "deny"
+large_stack_frames = "deny"
+large_types_passed_by_value = "deny"
+redundant_clone = "deny"
+assigning_clones = "deny"
+# Crate-specific hard rules (see ARCH.md): never hard fail,
+# strings are not interfaces, no unsafe, no fixed indexing.
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+unreachable = "deny"
+todo = "deny"
+unimplemented = "deny"
+indexing_slicing = "deny"
+string_slice = "deny"
+wildcard_enum_match_arm = "deny"
+fn_params_excessive_bools = "deny"
+
+as_conversions = "deny"
+cast_possible_truncation = "deny"
+match_wildcard_for_single_variants = "deny"
+print_stdout = "deny"
+dbg_macro = "deny"
