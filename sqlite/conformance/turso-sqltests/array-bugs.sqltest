@@ -216,6 +216,26 @@ expect {
     1|{aa,bb,cc}
 }
 
+test array-custom-type-char-self-update-does-not-hang {
+    CREATE TABLE act_char (id INTEGER PRIMARY KEY, val "char"[]) STRICT;
+    INSERT INTO act_char VALUES (1, '{"a","b","c"}');
+    UPDATE act_char SET val = val WHERE id = 1;
+    SELECT id, val FROM act_char;
+}
+expect {
+    1|{a,b,c}
+}
+
+test array-custom-type-name-self-update-does-not-hang {
+    CREATE TABLE act_name (id INTEGER PRIMARY KEY, val name[]) STRICT;
+    INSERT INTO act_name VALUES (1, '{"aa","bb","cc"}');
+    UPDATE act_name SET val = val WHERE id = 1;
+    SELECT id, val FROM act_name;
+}
+expect {
+    1|{aa,bb,cc}
+}
+
 test array-element-through-derived-table {
     CREATE TABLE aedt1 (id INTEGER PRIMARY KEY, vals integer[]) STRICT;
     INSERT INTO aedt1 VALUES (1, '{10,20,30}');

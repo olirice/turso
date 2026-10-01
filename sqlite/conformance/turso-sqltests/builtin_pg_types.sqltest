@@ -224,6 +224,140 @@ expect {
 }
 
 @requires strict "uses STRICT tables"
+test char-truncates-ascii-to-one-byte {
+    CREATE TABLE t1(id INTEGER PRIMARY KEY, val "char") STRICT;
+    INSERT INTO t1 VALUES (1, 'abc');
+    SELECT id, hex(val) FROM t1;
+}
+expect {
+    1|61
+}
+
+@requires strict "uses STRICT tables"
+test char-empty-string-decodes-to-empty-text {
+    CREATE TABLE t1(id INTEGER PRIMARY KEY, val "char") STRICT;
+    INSERT INTO t1 VALUES (1, '');
+    SELECT id, val, val IS NULL FROM t1;
+}
+expect {
+    1||0
+}
+
+@requires strict "uses STRICT tables"
+test char-truncates-multibyte-to-first-byte-and-octal-escapes-it {
+    CREATE TABLE t1(id INTEGER PRIMARY KEY, val "char") STRICT;
+    INSERT INTO t1 VALUES (1, 'é');
+    SELECT id, val FROM t1;
+}
+expect {
+    1|\303
+}
+
+@requires strict "uses STRICT tables"
+test char-null {
+    CREATE TABLE t1(id INTEGER PRIMARY KEY, val "char") STRICT;
+    INSERT INTO t1 VALUES (1, NULL);
+    SELECT id, val IS NULL FROM t1;
+}
+expect {
+    1|1
+}
+
+@requires strict "uses STRICT tables"
+test char-decodes-to-comparable-text {
+    CREATE TABLE t1(id INTEGER PRIMARY KEY, val "char") STRICT;
+    INSERT INTO t1 VALUES (1, 'r'), (2, 'v'), (3, 'm');
+    SELECT id FROM t1 WHERE val = 'r';
+}
+expect {
+    1
+}
+
+@requires strict "uses STRICT tables"
+test char-order-by-is-byte-order-not-text-order {
+    CREATE TABLE t1(id INTEGER PRIMARY KEY, val "char") STRICT;
+    INSERT INTO t1 VALUES (1, 'r'), (2, ''), (3, 'é');
+    SELECT id, val FROM t1 ORDER BY val;
+}
+expect {
+    2|
+    1|r
+    3|\303
+}
+
+test unquoted-char-column-keeps-text-affinity {
+    CREATE TABLE t1(id INTEGER PRIMARY KEY, val CHAR(10));
+    INSERT INTO t1 VALUES (1, 'hello');
+    INSERT INTO t1 VALUES (2, 123);
+    SELECT id, val, typeof(val) FROM t1;
+}
+expect {
+    1|hello|text
+    2|123|text
+}
+
+@requires strict "uses STRICT tables"
+test name-round-trip {
+    CREATE TABLE t1(id INTEGER PRIMARY KEY, val name) STRICT;
+    INSERT INTO t1 VALUES (1, 'hello');
+    SELECT id, val FROM t1;
+}
+expect {
+    1|hello
+}
+
+@requires strict "uses STRICT tables"
+test name-truncates-ascii-over-63-bytes {
+    CREATE TABLE t1(id INTEGER PRIMARY KEY, val name) STRICT;
+    INSERT INTO t1 VALUES (1, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+    SELECT id, val, length(val) FROM t1;
+}
+expect {
+    1|aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|63
+}
+
+@requires strict "uses STRICT tables"
+test name-drops-multibyte-char-straddling-byte-63 {
+    CREATE TABLE t1(id INTEGER PRIMARY KEY, val name) STRICT;
+    INSERT INTO t1 VALUES (1, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaé');
+    SELECT id, octet_length(val), val = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' FROM t1;
+}
+expect {
+    1|62|1
+}
+
+@requires strict "uses STRICT tables"
+test name-keeps-multibyte-char-that-fits-exactly-in-63-bytes {
+    CREATE TABLE t1(id INTEGER PRIMARY KEY, val name) STRICT;
+    INSERT INTO t1 VALUES (1, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaé');
+    SELECT id, octet_length(val), val = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaé' FROM t1;
+}
+expect {
+    1|63|1
+}
+
+@requires strict "uses STRICT tables"
+test name-null {
+    CREATE TABLE t1(id INTEGER PRIMARY KEY, val name) STRICT;
+    INSERT INTO t1 VALUES (1, NULL);
+    SELECT id, val IS NULL FROM t1;
+}
+expect {
+    1|1
+}
+
+test unquoted-name-column-keeps-numeric-affinity {
+    CREATE TABLE t1(id INTEGER PRIMARY KEY, val name);
+    INSERT INTO t1 VALUES (1, 'hello');
+    INSERT INTO t1 VALUES (2, 123);
+    SELECT id, val, typeof(val) FROM t1;
+}
+expect {
+    1|hello|text
+    2|123|integer
+}
+
+@requires strict "uses STRICT tables"
 test drop-builtin-type-fails {
     DROP TYPE boolean;
 }

@@ -460,6 +460,8 @@ fn resolve_scalar_func_return_type(
         | ScalarFunc::StrfTime
         | ScalarFunc::TimeDiff
         | ScalarFunc::Printf
+        | ScalarFunc::NameClip
+        | ScalarFunc::CharOut
         | ScalarFunc::StringReverse => Ok(CheckExprType::Text),
 
         // Functions that always return REAL

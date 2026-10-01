@@ -1,0 +1,76 @@
+@database :memory:
+@requires-file custom_types "unnest tests use ARRAY[...] literals and array-typed columns"
+
+test unnest-basic-ints {
+    SELECT value FROM unnest(ARRAY[1, 2, 3]);
+}
+expect {
+    1
+    2
+    3
+}
+
+test unnest-text-with-quotes-and-commas {
+    SELECT value FROM unnest(ARRAY['hello, world', 'has "quotes"', 'plain']);
+}
+expect {
+    hello, world
+    has "quotes"
+    plain
+}
+
+test unnest-null-elements {
+    SELECT value FROM unnest(ARRAY[1, NULL, 3]);
+}
+expect {
+    1
+
+    3
+}
+
+test unnest-empty-array {
+    SELECT value FROM unnest(ARRAY[]);
+}
+expect {
+}
+
+test unnest-null-argument {
+    SELECT value FROM unnest(NULL);
+}
+expect {
+}
+
+test unnest-non-array-argument {
+    SELECT value FROM unnest(5);
+}
+expect {
+}
+
+test unnest-correlated-join {
+    CREATE TABLE un_join (id INTEGER PRIMARY KEY, vals integer[]) STRICT;
+    INSERT INTO un_join VALUES (1, '{10,20}');
+    INSERT INTO un_join VALUES (2, '{}');
+    INSERT INTO un_join VALUES (3, '{30}');
+    SELECT un_join.id, u.value FROM un_join, unnest(un_join.vals) AS u ORDER BY un_join.id, u.value;
+}
+expect {
+    1|10
+    1|20
+    3|30
+}
+
+test unnest-order-by {
+    SELECT value FROM unnest(ARRAY[3, 1, 2]) ORDER BY value;
+}
+expect {
+    1
+    2
+    3
+}
+
+test unnest-aggregate-sum {
+    SELECT sum(value) FROM unnest(ARRAY[1, 2, 3, 4]);
+}
+expect {
+    10
+}

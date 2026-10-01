@@ -11165,6 +11165,51 @@ pub fn op_function(
                 };
                 state.registers[*dest].set_value(result);
             }
+            ScalarFunc::NameClip => {
+                check_arg_count!(arg_count, 1);
+                const NAME_MAX_BYTES: usize = 63;
+                let val = &state.registers[*start_reg];
+                let result = match val.get_value() {
+                    Value::Null => Value::Null,
+                    Value::Text(t) => Value::build_text(
+                        clip_to_utf8_char_boundary_within(t.as_str(), NAME_MAX_BYTES).to_string(),
+                    ),
+                    other => {
+                        return Err(LimboError::Constraint(format!(
+                            "invalid input for type name: \"{other}\""
+                        ))
+                        .into());
+                    }
+                };
+                state.registers[*dest].set_value(result);
+            }
+            ScalarFunc::CharOut => {
+                check_arg_count!(arg_count, 1);
+                let val = &state.registers[*start_reg];
+                let result = match val.get_value() {
+                    Value::Null => Value::Null,
+                    Value::Blob(b) => {
+                        let Some(&byte) = b.first() else {
+                            return Err(LimboError::Constraint(
+                                "invalid input for type \"char\": empty value".to_string(),
+                            )
+                            .into());
+                        };
+                        Value::build_text(match byte {
+                            0 => String::new(),
+                            1..=127 => (byte as char).to_string(),
+                            128..=255 => format!("\\{byte:03o}"),
+                        })
+                    }
+                    other => {
+                        return Err(LimboError::Constraint(format!(
+                            "invalid input for type \"char\": \"{other}\""
+                        ))
+                        .into());
+                    }
+                };
+                state.registers[*dest].set_value(result);
+            }
             ScalarFunc::NumericEncode => {
                 check_arg_count!(arg_count, 3);
                 let val = &state.registers[*start_reg];
@@ -12252,6 +12297,17 @@ pub fn op_function(
 }
 
 pub(crate) type OpAttachState = crate::connection::AttachDatabaseState;
+
+fn clip_to_utf8_char_boundary_within(s: &str, max_bytes: usize) -> &str {
+    if s.len() <= max_bytes {
+        return s;
+    }
+    let mut end = max_bytes;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
 
 /// LIKE with an operand that is not TEXT: both are converted to TEXT first.
 #[inline(never)]

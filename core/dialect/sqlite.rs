@@ -158,6 +158,7 @@ pub fn register_builtin_catalog(
         schema.register_internal_vtab(crate::json::vtab::JsonVirtualTable::json_each())?;
         schema.register_internal_vtab(crate::json::vtab::JsonVirtualTable::json_tree())?;
     }
+    schema.register_internal_vtab(crate::unnest::UnnestVirtualTable::new())?;
     #[cfg(feature = "cli_only")]
     {
         schema.register_internal_vtab(crate::dbpage::DbPageTable::new())?;
@@ -535,6 +536,8 @@ pub fn resolve_builtin_function(name: &str, arg_count: usize) -> crate::Result<O
         "boolean_to_int" => Ok(Some(Func::Scalar(ScalarFunc::BooleanToInt))),
         "int_to_boolean" => Ok(Some(Func::Scalar(ScalarFunc::IntToBoolean))),
         "validate_ipaddr" => Ok(Some(Func::Scalar(ScalarFunc::ValidateIpAddr))),
+        "name_clip" => Ok(Some(Func::Scalar(ScalarFunc::NameClip))),
+        "char_out" => Ok(Some(Func::Scalar(ScalarFunc::CharOut))),
         "numeric_encode" => Ok(Some(Func::Scalar(ScalarFunc::NumericEncode))),
         "numeric_decode" => Ok(Some(Func::Scalar(ScalarFunc::NumericDecode))),
         "numeric_add" => Ok(Some(Func::Scalar(ScalarFunc::NumericAdd))),

@@ -1846,6 +1846,8 @@ pub fn translate_expr(
                         | ScalarFunc::BooleanToInt
                         | ScalarFunc::IntToBoolean
                         | ScalarFunc::ValidateIpAddr
+                        | ScalarFunc::NameClip
+                        | ScalarFunc::CharOut
                         | ScalarFunc::NumericEncode
                         | ScalarFunc::NumericDecode
                         | ScalarFunc::NumericAdd

@@ -1,6 +1,24 @@
 @database :memory:
 @requires-file custom_types "uses SMALLINT cast and array-typed columns"
 
+test coroutine-for-table-function-derived-table-with-hoisted-cast {
+    -- A CAST to a registered custom type (SMALLINT) that is itself a
+    -- compile-time constant used to leave its "constant span" open when
+    -- returning early, letting the next unrelated non-constant expression
+    -- close it and sweep everything emitted in between - including this
+    -- correlated derived table's own coroutine setup - into the hoisted
+    -- "run once" tail, so it ran at most once instead of once per row.
+    CREATE TABLE t (id INTEGER, opts ANY);
+    INSERT INTO t VALUES (1, '{3,1,2}');
+    INSERT INTO t VALUES (2, '{9,7,8}');
+    SELECT id, (SELECT array_agg(x.v) FROM (SELECT value AS v FROM unnest(t.opts) ORDER BY value) AS x)
+    FROM t WHERE id > CAST(0 AS SMALLINT) ORDER BY id;
+}
+expect {
+    1|{1,2,3}
+    2|{7,8,9}
+}
+
 test coroutine-for-plain-derived-table-with-hoisted-cast {
     -- Same shape, but the correlated derived table needing its own
     -- coroutine has no table function at all (ORDER BY + LIMIT forces a
