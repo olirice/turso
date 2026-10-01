@@ -128,6 +128,7 @@ jobs:
         env:
           RUST_LOG: ${{ runner.debug && 'turso_core::storage=trace' || '' }}
           LOCAL_SYNC_SERVER: "../../target/debug/tursodb"
+          PG_TESTS: skip
         run: cargo nextest run --workspace --all-features --locked --no-fail-fast --exclude memory-benchmark -E 'not binary(fuzz_tests) and not binary(pending_byte_tests)' --failure-output=final
         timeout-minutes: 30
       # Same suite against a --sync-dir server, so directory mode's per-database

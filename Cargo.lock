@@ -7301,6 +7301,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "turso_pg_head_wire"
+version = "0.8.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "futures",
+ "pgwire",
+ "proptest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "turso_core",
+ "turso_pg_head",
+]
+
+[[package]]
 name = "turso_pg_parser"
 version = "0.8.0"
 dependencies = [

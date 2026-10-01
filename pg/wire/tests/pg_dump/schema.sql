@@ -1,0 +1,17 @@
+create role alice login;
+create role bob;
+grant create on schema public to alice;
+set role alice;
+create table notes (id integer primary key, owner text not null, body text, views bigint);
+create table "Mixed Case" ("Key" bigint primary key, "a.b" text);
+create table plain (n integer);
+insert into notes values (1, 'alice', 'hi', 3);
+grant select, insert on notes to bob;
+grant select on "Mixed Case" to bob, alice;
+alter table notes enable row level security;
+alter table "Mixed Case" enable row level security;
+alter table "Mixed Case" force row level security;
+create policy own on notes for select to bob using (owner = current_user);
+create policy pair on notes for select to bob, alice using (id = 1 and body = 'x' or views = 3);
+create policy everyone on "Mixed Case" for select using ("Key" = 1);
+reset role;

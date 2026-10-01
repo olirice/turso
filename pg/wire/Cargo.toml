@@ -1,0 +1,66 @@
+[package]
+name = "turso_pg_head_wire"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "A PostgreSQL wire-protocol listener in front of turso_pg_head, one head session per connection"
+publish = false
+
+[[bin]]
+name = "pg-head-server"
+path = "src/bin/pg-head-server.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = "0.1"
+futures = { workspace = true }
+pgwire = "0.36"
+tokio = { version = "1", features = ["rt-multi-thread", "net", "macros"] }
+tracing = { workspace = true }
+turso_core = { workspace = true }
+turso_pg_head = { path = "../head" }
+
+[dev-dependencies]
+proptest = "1.9"
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(loom)', 'cfg(shuttle)', 'cfg(antithesis)', 'cfg(nightly)'] }
+# For now allow this for the allocator api migration
+unstable_name_collisions = "allow"
+unsafe_code = "deny"
+
+[lints.clippy]
+# Workspace lints (Cargo cannot combine `workspace = true` with crate additions).
+await_holding_lock = "deny"
+or_fun_call = "deny"
+clear_with_drain = "deny"
+collection_is_never_read = "deny"
+naive_bytecount = "deny"
+stable_sort_primitive = "deny"
+large_stack_frames = "deny"
+large_types_passed_by_value = "deny"
+redundant_clone = "deny"
+assigning_clones = "deny"
+# Crate-specific hard rules (see ARCH.md): never hard fail,
+# strings are not interfaces, no unsafe, no fixed indexing.
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+unreachable = "deny"
+todo = "deny"
+unimplemented = "deny"
+indexing_slicing = "deny"
+string_slice = "deny"
+wildcard_enum_match_arm = "deny"
+fn_params_excessive_bools = "deny"
+
+as_conversions = "deny"
+cast_possible_truncation = "deny"
+match_wildcard_for_single_variants = "deny"
+print_stdout = "deny"
+dbg_macro = "deny"
