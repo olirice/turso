@@ -9,6 +9,9 @@ PostgreSQL wire protocol. It exists to prove, against a live PostgreSQL
 byte for byte and reproduce PostgreSQL's privilege and row-security
 decisions through one typed path.
 
+`examples/pg-head/demo.sh` shows it in a minute: row security, a refusal and
+`pg_dump`, over a live `pg-head-server`.
+
 ## Rules
 
 1. **One path.** Every statement crosses the same stages; every relation
