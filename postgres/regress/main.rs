@@ -35,8 +35,7 @@
 //!
 //! Known emulation gaps, to be filled as the corpus grows to need them:
 //! multi-line field values are not rendered with `+` continuation markers,
-//! long error-position lines are not clipped with `...`, and column widths
-//! count characters rather than terminal display width.
+//! and column widths count characters rather than terminal display width.
 
 mod describe;
 
@@ -47,7 +46,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Instant;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use clap::Parser;
 
 /// Default endpoint when neither `--dsn` nor `PGREGRESS_DSN` is set.
@@ -276,7 +275,13 @@ fn run_script(args: &Args, params: &ConnParams, script: &Path) -> Result<TestRes
 /// Executes one script on a fresh connection (pg_regress runs one psql per
 /// script) and returns the psql-style transcript.
 fn run_transcript(params: &ConnParams, name: &str, source: &str) -> Result<String> {
-    let mut session = Session::new(PgConn::connect(params, name)?, params.clone(), name);
+    let conn = PgConn::connect(params, name)?.map_err(|fields| {
+        anyhow!(
+            "server rejected connection: {}",
+            fields.get(&b'M').map(String::as_str).unwrap_or("unknown")
+        )
+    })?;
+    let mut session = Session::new(conn, params.clone(), name);
     let mut out = String::new();
     let mut scanner = Scanner::default();
 
@@ -651,9 +656,34 @@ impl Session {
                 }
             }
             "c" | "connect" => {
-                // `\c` / `\c -`: reconnect to the same database. Variables
-                // and display options survive, connection state resets.
-                self.conn = PgConn::connect(&self.params, &self.test_name)?;
+                // `\c` / `\c -`: reconnect, keeping any positional argument
+                // that is absent or `-`. Variables and display options
+                // survive, connection state resets.
+                let args = self.meta_args(rest);
+                let mut new_params = self.params.clone();
+                new_params.database =
+                    connect_arg(&args, 0).unwrap_or_else(|| self.params.database.clone());
+                new_params.user = connect_arg(&args, 1).unwrap_or_else(|| self.params.user.clone());
+                match PgConn::connect(&new_params, &self.test_name)? {
+                    Ok(conn) => {
+                        self.conn = conn;
+                        self.params = new_params;
+                    }
+                    Err(fields) => {
+                        // psql keeps the previous connection on a failed
+                        // `\connect` only when running interactively;
+                        // pg_regress always runs non-interactively (fed on
+                        // stdin, like this runner), so real psql exits
+                        // immediately here. The script ends at this line.
+                        let severity = fields.get(&b'S').map(String::as_str).unwrap_or("FATAL");
+                        let message = fields.get(&b'M').map(String::as_str).unwrap_or("");
+                        out.push_str(&format!(
+                            "\\connect: connection to server at \"{}\", port {} failed: {severity}:  {message}\n",
+                            new_params.host, new_params.port
+                        ));
+                        self.quit = true;
+                    }
+                }
             }
             "g" => {
                 let stmt = scanner.take_buffer();
@@ -787,6 +817,27 @@ fn parse_bool(value: &str) -> Option<bool> {
         "1" => Some(true),
         "0" => Some(false),
         _ => None,
+    }
+}
+
+/// A `\c`/`\connect` positional argument (dbname, then username): absent or
+/// `-` means psql keeps whatever that parameter already was. `split_meta_args`
+/// keeps a double-quoted token's quotes (needed verbatim by other meta-
+/// commands), so a quoted identifier here is unquoted the way PostgreSQL
+/// itself unquotes one: the surrounding quotes are dropped and a doubled
+/// `""` inside becomes one `"`, preserving the identifier's case instead of
+/// folding it, and the exact bytes are what reaches the startup packet.
+fn connect_arg(args: &[String], index: usize) -> Option<String> {
+    match args.get(index).map(String::as_str) {
+        None | Some("-") => None,
+        Some(value) => Some(unquote_identifier(value)),
+    }
+}
+
+fn unquote_identifier(value: &str) -> String {
+    match value.strip_prefix('"').and_then(|v| v.strip_suffix('"')) {
+        Some(inner) => inner.replace("\"\"", "\""),
+        None => value.to_string(),
     }
 }
 
@@ -1264,8 +1315,14 @@ impl Table {
 
     /// Renders in psql's default aligned format with border 1: centered
     /// headers, a dashed separator, per-type value alignment, a row-count
-    /// footer, and a trailing blank line. Data lines are right-trimmed;
-    /// header and separator lines are not (matching psql exactly).
+    /// footer, and a trailing blank line. A data row's last column is never
+    /// right-padded (so a NULL there leaves only its single leading space,
+    /// matching psql exactly); the header and separator lines pad every
+    /// column symmetrically instead. A value containing a newline wraps
+    /// its column over several physical lines; each column that still has
+    /// a further line of its own gets a trailing "+" in its own column
+    /// position (never just at the end of the printed line), and a column
+    /// with fewer lines than the row's tallest pads blank once it runs out.
     fn render(&self, opts: &RenderOpts, out: &mut String) {
         if opts.expanded {
             return self.render_expanded(opts, out);
@@ -1273,6 +1330,11 @@ impl Table {
         let display = |value: &Option<String>| -> String {
             value.clone().unwrap_or_else(|| opts.null_display.clone())
         };
+        // A value can itself contain newlines (`pg_get_expr` on a CASE
+        // expression, say); psql's aligned format wraps each physical line
+        // of such a cell to the column's width (the widest single line
+        // anywhere in it, not the value's total length) and marks every
+        // non-final physical line with a trailing "+".
         let widths: Vec<usize> = self
             .columns
             .iter()
@@ -1280,7 +1342,13 @@ impl Table {
             .map(|(i, col)| {
                 self.rows
                     .iter()
-                    .map(|row| display(&row[i]).chars().count())
+                    .flat_map(|row| {
+                        let value = display(&row[i]);
+                        value
+                            .lines()
+                            .map(|line| line.chars().count())
+                            .collect::<Vec<_>>()
+                    })
                     .max()
                     .unwrap_or(0)
                     .max(col.name.chars().count())
@@ -1308,24 +1376,64 @@ impl Table {
         out.push_str(&sep.join("+"));
         out.push('\n');
 
+        let last = self.columns.len().saturating_sub(1);
         for row in &self.rows {
-            let cells: Vec<String> = row
-                .iter()
-                .zip(&self.columns)
-                .zip(&widths)
-                .map(|((value, col), &w)| {
-                    let v = display(value);
-                    let pad = " ".repeat(w - v.chars().count());
-                    if right_aligned(col.type_oid) {
-                        format!(" {pad}{v} ")
-                    } else {
-                        format!(" {v}{pad} ")
-                    }
-                })
-                .collect();
-            let line = cells.join("|");
-            out.push_str(line.trim_end());
-            out.push('\n');
+            let values: Vec<String> = row.iter().map(display).collect();
+            // A single-line cell is `cell_lines(v) == [v]`, so this loop's
+            // one iteration reduces to the plain (non-wrapped) case below.
+            let lines: Vec<Vec<&str>> = values.iter().map(|v| cell_lines(v)).collect();
+            let row_lines = lines.iter().map(Vec::len).max().unwrap_or(1).max(1);
+            for li in 0..row_lines {
+                let cells: Vec<String> = lines
+                    .iter()
+                    .zip(&self.columns)
+                    .zip(&widths)
+                    .enumerate()
+                    .map(|(i, ((column_lines, col), &w))| {
+                        let v = column_lines.get(li).copied().unwrap_or("");
+                        let pad = " ".repeat(w.saturating_sub(v.chars().count()));
+                        let right = right_aligned(col.type_oid);
+                        // A cell with a further physical line still to come
+                        // gets psql's own "+" marker, in THAT cell's own
+                        // column position (not just at the end of the
+                        // line): the cell's usual trailing space becomes
+                        // the "+", every other column padding normally, so
+                        // a non-last continuing cell shows "+|" and the
+                        // next column starts fresh right after it.
+                        if li + 1 < column_lines.len() {
+                            if right {
+                                format!(" {pad}{v}+")
+                            } else {
+                                format!(" {v}{pad}+")
+                            }
+                        } else if i == last {
+                            // psql never puts a trailing space after a data
+                            // row's last column. Once this cell has no
+                            // more lines of its own (li past its own line
+                            // count, a shorter cell alongside a taller one
+                            // in another column) it also drops all
+                            // padding, leaving only its single leading
+                            // space (which a blanket right-trim of the
+                            // whole line would otherwise eat); its own
+                            // final line keeps a right-aligned type's
+                            // leading pad but never trailing padding.
+                            if li >= column_lines.len() {
+                                " ".to_string()
+                            } else if right {
+                                format!(" {pad}{v}")
+                            } else {
+                                format!(" {v}")
+                            }
+                        } else if right {
+                            format!(" {pad}{v} ")
+                        } else {
+                            format!(" {v}{pad} ")
+                        }
+                    })
+                    .collect();
+                out.push_str(&cells.join("|"));
+                out.push('\n');
+            }
         }
 
         let n = self.rows.len();
@@ -1370,6 +1478,17 @@ impl Table {
     }
 }
 
+/// A cell's physical lines: a value containing no newline is one line (the
+/// common case); an empty value is one empty line, not zero (a NULL or
+/// empty string still occupies a physical line of the row).
+fn cell_lines(value: &str) -> Vec<&str> {
+    if value.is_empty() {
+        vec![""]
+    } else {
+        value.lines().collect()
+    }
+}
+
 /// psql right-aligns numeric types (see `column_type_alignment` in
 /// `fe_utils/print.c`); everything else, including bool, is left-aligned.
 fn right_aligned(type_oid: u32) -> bool {
@@ -1410,24 +1529,7 @@ fn format_error(fields: &HashMap<u8, String>, query: &str, opts: &RenderOpts, ou
     out.push_str(&format!("{severity}:  {message}\n"));
 
     if let Some(pos) = fields.get(&b'P').and_then(|p| p.parse::<usize>().ok()) {
-        let chars: Vec<char> = query.chars().collect();
-        let pos0 = pos.saturating_sub(1).min(chars.len());
-        let mut line_no = 1;
-        let mut line_start = 0;
-        for (i, &c) in chars[..pos0].iter().enumerate() {
-            if c == '\n' {
-                line_no += 1;
-                line_start = i + 1;
-            }
-        }
-        let line: String = chars[line_start..]
-            .iter()
-            .take_while(|&&c| c != '\n')
-            .collect();
-        let prefix = format!("LINE {line_no}: ");
-        let caret_col = prefix.chars().count() + (pos0 - line_start);
-        out.push_str(&format!("{prefix}{line}\n"));
-        out.push_str(&format!("{}^\n", " ".repeat(caret_col)));
+        append_line_position(out, query, pos);
     }
 
     let show_context = match opts.show_context {
@@ -1443,6 +1545,110 @@ fn format_error(fields: &HashMap<u8, String>, query: &str, opts: &RenderOpts, ou
             out.push_str(&format!("{label}:  {text}\n"));
         }
     }
+}
+
+/// psql's own screen-width limit for a `LINE n:` excerpt, and how close the
+/// cursor is kept to the (possibly clipped) right edge when only the right
+/// side needs cutting: PostgreSQL 18's `reportErrorPosition`
+/// (`src/interfaces/libpq/fe-protocol3.c`), reproduced exactly so a
+/// position-bearing statement need not stay artificially short to be
+/// recorded byte for byte.
+const LINE_DISPLAY_WIDTH: usize = 60;
+const LINE_MIN_RIGHT_CUT: usize = 10;
+
+/// A character's screen width for `LINE n:` clipping. PostgreSQL forces
+/// every character's width to at least one column here specifically (even a
+/// zero-width combining mark), so only a genuinely wide (e.g. East Asian
+/// fullwidth) character ever costs more than one.
+fn line_char_width(ch: char) -> usize {
+    unicode_width::UnicodeWidthChar::width(ch)
+        .unwrap_or(1)
+        .max(1)
+}
+
+/// Appends the `LINE n: ...` excerpt and its caret line for `position`
+/// (PostgreSQL's 1-based character position, the wire protocol's `P`
+/// field), reproducing psql's own clipping of a long line: once the line
+/// containing the cursor exceeds `LINE_DISPLAY_WIDTH` screen columns, psql
+/// cuts the far end first, only cutting the near end too if that alone
+/// cannot keep the cursor `LINE_MIN_RIGHT_CUT` columns from the (clipped)
+/// right edge, marking whichever end it cut with `...`. Tabs are folded to
+/// a single space first, matching psql's own writable copy of the query.
+fn append_line_position(out: &mut String, query: &str, position: usize) {
+    let Some(loc) = position.checked_sub(1) else {
+        return;
+    };
+    let chars: Vec<char> = query.replace('\t', " ").chars().collect();
+    if loc > chars.len() {
+        return;
+    }
+
+    // Each character's starting screen column, one entry per character plus
+    // a trailing entry for the position just past the last one.
+    let mut column = Vec::with_capacity(chars.len() + 1);
+    column.push(0usize);
+    for &ch in &chars {
+        column.push(column[column.len() - 1] + line_char_width(ch));
+    }
+
+    // The 1-based line number containing `loc`, and the half-open character
+    // range `[ibeg, iend)` of that line: a line ends at `\r`, `\n`, or
+    // `\r\n` (a pair counting as one break), matching PostgreSQL's own scan.
+    let mut loc_line = 1usize;
+    let mut ibeg = 0usize;
+    let mut iend = chars.len();
+    for cno in 0..chars.len() {
+        let ch = chars[cno];
+        if ch != '\r' && ch != '\n' {
+            continue;
+        }
+        if cno < loc {
+            if ch == '\r' || cno == 0 || chars[cno - 1] != '\r' {
+                loc_line += 1;
+            }
+            ibeg = cno + 1;
+        } else {
+            iend = cno;
+            break;
+        }
+    }
+
+    let mut beg_trunc = false;
+    let mut end_trunc = false;
+    if column[iend] - column[ibeg] > LINE_DISPLAY_WIDTH {
+        if column[ibeg] + LINE_DISPLAY_WIDTH >= column[loc] + LINE_MIN_RIGHT_CUT {
+            while column[iend] - column[ibeg] > LINE_DISPLAY_WIDTH {
+                iend -= 1;
+            }
+            end_trunc = true;
+        } else {
+            while column[loc] + LINE_MIN_RIGHT_CUT < column[iend] {
+                iend -= 1;
+                end_trunc = true;
+            }
+            while column[iend] - column[ibeg] > LINE_DISPLAY_WIDTH {
+                ibeg += 1;
+                beg_trunc = true;
+            }
+        }
+    }
+
+    let prefix = format!("LINE {loc_line}: ");
+    let mut prefix_width: usize = prefix.chars().map(line_char_width).sum();
+    out.push_str(&prefix);
+    if beg_trunc {
+        out.push_str("...");
+        prefix_width += 3;
+    }
+    out.extend(&chars[ibeg..iend]);
+    if end_trunc {
+        out.push_str("...");
+    }
+    out.push('\n');
+
+    let caret_col = prefix_width + (column[loc] - column[ibeg]);
+    out.extend(std::iter::repeat_n(' ', caret_col));
+    out.push_str("^\n");
 }
 
 fn parse_error_fields(body: &[u8]) -> Result<HashMap<u8, String>> {
@@ -1517,11 +1723,20 @@ struct PgConn {
     writer: BufWriter<TcpStream>,
 }
 
+/// The fields of a startup-time `ErrorResponse`: the server rejected the
+/// handshake itself (an unknown role, for example) rather than accepting
+/// the connection.
+type ConnectRejection = HashMap<u8, String>;
+
 impl PgConn {
     /// Connects and performs the startup handshake. The startup parameters
     /// replicate pg_regress's psql environment (PGTZ, PGDATESTYLE, PGOPTIONS,
-    /// PGAPPNAME) so transcripts are byte-reproducible.
-    fn connect(params: &ConnParams, test_name: &str) -> Result<PgConn> {
+    /// PGAPPNAME) so transcripts are byte-reproducible. The outer `Result`
+    /// is a transport-level failure (a bad DSN, an unsupported auth method);
+    /// the inner one is the server refusing the handshake outright, which a
+    /// `\c`/`\connect` failure needs to render psql's own way rather than
+    /// aborting the run.
+    fn connect(params: &ConnParams, test_name: &str) -> Result<Result<PgConn, ConnectRejection>> {
         let stream = TcpStream::connect((params.host.as_str(), params.port))
             .with_context(|| format!("connecting to {}:{}", params.host, params.port))?;
         // A statement that gets no reply within this window means the server
@@ -1578,14 +1793,8 @@ impl PgConn {
                     }
                 }
                 b'S' | b'K' | b'N' => {} // ParameterStatus, BackendKeyData, notices
-                b'Z' => return Ok(conn),
-                b'E' => {
-                    let fields = parse_error_fields(&body)?;
-                    bail!(
-                        "server rejected connection: {}",
-                        fields.get(&b'M').map(String::as_str).unwrap_or("unknown")
-                    );
-                }
+                b'Z' => return Ok(Ok(conn)),
+                b'E' => return Ok(Err(parse_error_fields(&body)?)),
                 other => bail!("unexpected message {:?} during startup", other as char),
             }
         }
