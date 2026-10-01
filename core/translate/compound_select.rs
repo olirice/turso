@@ -9,8 +9,12 @@ use crate::translate::emitter::{
 use crate::translate::eqp::{EqpCompoundOp, EqpDetail, EqpSortMethod};
 use crate::translate::expr::translate_expr;
 use crate::translate::order_by::{custom_type_comparator, sorter_insert};
-use crate::translate::plan::{CompoundOrderByKey, Plan, QueryDestination, SelectPlan};
-use crate::translate::result_row::emit_columns_to_destination;
+use crate::translate::plan::{
+    CompoundOrderByKey, Plan, QueryDestination, ResultSetColumn, SelectPlan, TableReferences,
+};
+use crate::translate::result_row::{
+    destination_is_final, emit_array_decode_for_results, emit_columns_to_destination,
+};
 use crate::vdbe::builder::{CursorType, ProgramBuilder};
 use crate::vdbe::insn::{Insn, SorterOpenData};
 use crate::{emit_explain, LimboError};
@@ -403,6 +407,9 @@ fn emit_compound_select(
                         offset_reg,
                         reg_result_cols_start,
                         query_destination,
+                        &right_most.result_columns,
+                        &right_most.table_references,
+                        resolver,
                     )?;
                 }
             }
@@ -462,6 +469,9 @@ fn emit_compound_select(
                     offset_reg,
                     reg_result_cols_start,
                     &intersect_destination,
+                    &right_most.result_columns,
+                    &right_most.table_references,
+                    resolver,
                 )?;
             }
             CompoundOperator::Except => {
@@ -520,6 +530,9 @@ fn emit_compound_select(
                         offset_reg,
                         reg_result_cols_start,
                         query_destination,
+                        &right_most.result_columns,
+                        &right_most.table_references,
+                        resolver,
                     )?;
                 }
             }
@@ -621,6 +634,9 @@ fn read_deduplicated_union_or_except_rows(
     offset_reg: Option<usize>,
     reg_result_cols_start: Option<usize>,
     query_destination: &QueryDestination,
+    result_columns: &[ResultSetColumn],
+    table_references: &TableReferences,
+    resolver: &Resolver,
 ) -> crate::Result<()> {
     let label_close = program.allocate_label();
     let label_dedupe_next = program.allocate_label();
@@ -648,6 +664,15 @@ fn read_deduplicated_union_or_except_rows(
             dest: dedupe_cols_start_reg + col_idx,
             default: None,
         });
+    }
+    if destination_is_final(query_destination) {
+        emit_array_decode_for_results(
+            program,
+            result_columns,
+            table_references,
+            dedupe_cols_start_reg,
+            resolver,
+        )?;
     }
     emit_columns_to_destination(
         program,
@@ -687,6 +712,9 @@ fn read_intersect_rows(
     offset_reg: Option<usize>,
     reg_result_cols_start: Option<usize>,
     query_destination: &QueryDestination,
+    result_columns: &[ResultSetColumn],
+    table_references: &TableReferences,
+    resolver: &Resolver,
 ) -> crate::Result<()> {
     let label_close = program.allocate_label();
     let label_loop_start = program.allocate_label();
@@ -729,6 +757,15 @@ fn read_intersect_rows(
         });
     }
 
+    if destination_is_final(query_destination) {
+        emit_array_decode_for_results(
+            program,
+            result_columns,
+            table_references,
+            cols_start_reg,
+            resolver,
+        )?;
+    }
     emit_columns_to_destination(program, query_destination, cols_start_reg, column_count)?;
 
     if let Some(limit_ctx) = limit_ctx {

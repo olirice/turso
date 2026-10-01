@@ -179,9 +179,9 @@ pub use turso_parser::ast::EqpFormat;
 pub use types::{IOResult, Value, ValueBlob, ValueRef};
 pub use util::IOExt;
 pub use vdbe::{
-    builder::QueryMode, explain::EXPLAIN_COLUMNS, explain::EXPLAIN_QUERY_PLAN_COLUMNS,
-    explain::EXPLAIN_QUERY_PLAN_JSON_COLUMNS, FromValueRow, PrepareContext, PreparedProgram,
-    Program, Register,
+    array::decode_array, array::encode_array, builder::QueryMode, explain::EXPLAIN_COLUMNS,
+    explain::EXPLAIN_QUERY_PLAN_COLUMNS, explain::EXPLAIN_QUERY_PLAN_JSON_COLUMNS, FromValueRow,
+    PrepareContext, PreparedProgram, Program, Register,
 };
 pub use vtab::{InternalVirtualTable, InternalVirtualTableCursor, VirtualTable};
 

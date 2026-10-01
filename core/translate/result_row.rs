@@ -64,13 +64,7 @@ pub fn emit_select_result(
     // and CTE materialization. This is slightly over-broad (e.g., simple INSERT INTO ...
     // SELECT with no UNION doesn't need this), but we lack context here to distinguish
     // compound vs non-compound cases.
-    let disable_constant_opt = matches!(
-        plan.query_destination,
-        QueryDestination::EphemeralIndex { .. }
-            | QueryDestination::CoroutineYield { .. }
-            | QueryDestination::EphemeralTable { .. }
-            | QueryDestination::RecursiveCteQueue { .. }
-    );
+    let disable_constant_opt = !destination_is_final(&plan.query_destination);
 
     if !skip_column_eval {
         for (i, rc) in plan.result_columns.iter().enumerate().filter(|(_, rc)| {
@@ -119,7 +113,7 @@ pub fn emit_select_result(
     // Emit ArrayDecode for result columns that produce array blobs.
     // Array values are stored as record-format blobs internally; decode
     // them to JSON text for user-facing display.
-    if !skip_column_eval {
+    if !skip_column_eval && !disable_constant_opt {
         emit_array_decode_for_results(
             program,
             &plan.result_columns,
@@ -503,6 +497,16 @@ pub fn emit_offset(program: &mut ProgramBuilder, jump_to: BranchOffset, reg_offs
         target_pc: jump_to,
         decrement_by: 1,
     });
+}
+
+pub(crate) fn destination_is_final(destination: &QueryDestination) -> bool {
+    !matches!(
+        destination,
+        QueryDestination::EphemeralIndex { .. }
+            | QueryDestination::CoroutineYield { .. }
+            | QueryDestination::EphemeralTable { .. }
+            | QueryDestination::RecursiveCteQueue { .. }
+    )
 }
 
 /// Emit ArrayDecode for result columns that produce array record blobs.

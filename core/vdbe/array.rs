@@ -144,6 +144,20 @@ fn parse_pg_text_array(text: &str) -> Option<Vec<Value>> {
 }
 
 /// Pack values into a record-format array blob.
+pub fn encode_array(values: &[Value]) -> Result<Value> {
+    values_to_record_blob(values)
+}
+
+pub fn decode_array(value: &Value) -> Result<Vec<Value>> {
+    match value {
+        Value::Blob(blob) => array_values_from_blob(blob),
+        other => Err(crate::LimboError::InvalidArgument(format!(
+            "expected an array value, got {}",
+            other.value_type()
+        ))),
+    }
+}
+
 pub(crate) fn values_to_record_blob(values: &[Value]) -> Result<Value> {
     Ok(Value::Blob(
         ImmutableRecord::from_values(values, values.len())?.into_payload(),

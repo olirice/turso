@@ -1848,3 +1848,11 @@ test filter-numeric-group-concat {
 expect {
     Alice,Carol
 }
+
+@requires strict "uses STRICT tables"
+test cast-to-registered-scalar-type-with-array-dimensions-is-a-no-op {
+    SELECT typeof(CAST(x'0102' AS SMALLINT[])), CAST(x'0102' AS SMALLINT[]) = x'0102';
+}
+expect {
+    blob|1
+}

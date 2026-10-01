@@ -537,6 +537,13 @@ pub fn translate_expr(
         ast::Expr::Cast { expr, type_name } => {
             translate_expr(program, referenced_tables, expr, target_register, resolver)?;
 
+            if type_name.as_ref().is_some_and(|tn| tn.array_dimensions > 0) {
+                if let Some(span) = constant_span {
+                    program.constant_span_end(span);
+                }
+                return Ok(target_register);
+            }
+
             // Check if casting to a custom type
             if let Some(ref tn) = type_name {
                 if let Some(resolved) = resolver.schema().resolve_type_unchecked(&tn.name)? {
@@ -584,6 +591,9 @@ pub fn translate_expr(
                             target_register,
                             resolver,
                         )?;
+                        if let Some(span) = constant_span {
+                            program.constant_span_end(span);
+                        }
                         return Ok(target_register);
                     }
 
@@ -617,6 +627,9 @@ pub fn translate_expr(
                                 type_def,
                                 resolver,
                             )?;
+                        }
+                        if let Some(span) = constant_span {
+                            program.constant_span_end(span);
                         }
                         return Ok(target_register);
                     }

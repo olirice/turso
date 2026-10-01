@@ -1725,3 +1725,36 @@ expect {
     2|5
     3|5
 }
+
+# Regression: FULL OUTER JOIN plans fine when the attached table's join key
+# is an ordinary column, but the planner finds no hash-join plan at all when
+# the attached (right-hand) table's join key is that table's own rowid alias,
+# even though both tables are plain base tables. This must fail loudly rather
+# than silently drop the unmatched-row semantics FULL OUTER requires.
+@skip-if sqlite "sqlite plans this FULL JOIN shape; turso's planner does not"
+@cross-check-integrity
+test full-outer-join-right-table-rowid-key-has-no-plan {
+    CREATE TABLE depts(id INTEGER PRIMARY KEY, name TEXT);
+    CREATE TABLE emps(id INTEGER PRIMARY KEY, dept_id INTEGER, name TEXT);
+    INSERT INTO depts VALUES (1, 'eng'), (2, 'sales');
+    INSERT INTO emps VALUES (1, 1, 'alice'), (2, 1, 'bob'), (3, NULL, 'carol');
+    SELECT emps.name, depts.name FROM emps FULL JOIN depts ON emps.dept_id = depts.id ORDER BY depts.name, emps.name;
+}
+expect error {
+    FULL OUTER JOIN requires an equality condition in the ON clause
+}
+
+@cross-check-integrity
+test full-outer-join-left-table-rowid-key-has-a-plan {
+    CREATE TABLE depts(id INTEGER PRIMARY KEY, name TEXT);
+    CREATE TABLE emps(id INTEGER PRIMARY KEY, dept_id INTEGER, name TEXT);
+    INSERT INTO depts VALUES (1, 'eng'), (2, 'sales');
+    INSERT INTO emps VALUES (1, 1, 'alice'), (2, 1, 'bob'), (3, NULL, 'carol');
+    SELECT emps.name, depts.name FROM depts FULL JOIN emps ON depts.id = emps.dept_id ORDER BY depts.name, emps.name;
+}
+expect {
+    carol|
+    alice|eng
+    bob|eng
+    |sales
+}

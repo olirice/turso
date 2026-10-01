@@ -174,3 +174,82 @@ test array-nested-case-display {
 expect {
     {1,2}
 }
+
+
+test array-custom-type-boolean-self-update-does-not-hang {
+    CREATE TABLE act_bool (id INTEGER PRIMARY KEY, flags boolean[]) STRICT;
+    INSERT INTO act_bool VALUES (1, '{true, false, true}');
+    UPDATE act_bool SET flags = flags WHERE id = 1;
+    SELECT id, flags FROM act_bool;
+}
+expect {
+    1|{1,0,1}
+}
+
+test array-custom-type-smallint-self-update-does-not-hang {
+    CREATE TABLE act_smallint (id INTEGER PRIMARY KEY, val smallint[]) STRICT;
+    INSERT INTO act_smallint VALUES (1, '{1,2,3}');
+    UPDATE act_smallint SET val = val WHERE id = 1;
+    SELECT id, val FROM act_smallint;
+}
+expect {
+    1|{1,2,3}
+}
+
+test array-custom-type-bigint-self-update-does-not-hang {
+    CREATE TABLE act_bigint (id INTEGER PRIMARY KEY, val bigint[]) STRICT;
+    INSERT INTO act_bigint VALUES (1, '{100,200,300}');
+    UPDATE act_bigint SET val = val WHERE id = 1;
+    SELECT id, val FROM act_bigint;
+}
+expect {
+    1|{100,200,300}
+}
+
+test array-custom-type-varchar-self-update-does-not-hang {
+    CREATE TABLE act_varchar (id INTEGER PRIMARY KEY, val varchar(10)[]) STRICT;
+    INSERT INTO act_varchar VALUES (1, '{"aa","bb","cc"}');
+    UPDATE act_varchar SET val = val WHERE id = 1;
+    SELECT id, val FROM act_varchar;
+}
+expect {
+    1|{aa,bb,cc}
+}
+
+test array-element-through-derived-table {
+    CREATE TABLE aedt1 (id INTEGER PRIMARY KEY, vals integer[]) STRICT;
+    INSERT INTO aedt1 VALUES (1, '{10,20,30}');
+    SELECT vals[1] FROM (SELECT vals FROM aedt1) AS t0;
+}
+expect {
+    10
+}
+
+test array-element-through-union-all {
+    CREATE TABLE aeua1 (id INTEGER PRIMARY KEY, vals integer[]) STRICT;
+    INSERT INTO aeua1 VALUES (1, '{10,20,30}');
+    INSERT INTO aeua1 VALUES (2, '{40,50,60}');
+    SELECT vals[1] FROM (SELECT vals FROM aeua1 WHERE id = 1 UNION ALL SELECT vals FROM aeua1 WHERE id = 2) AS t0 ORDER BY vals[1];
+}
+expect {
+    10
+    40
+}
+
+test text-array-element-through-union-keeps-its-type {
+    CREATE TABLE taut1 (id INTEGER PRIMARY KEY, vals text[]) STRICT;
+    INSERT INTO taut1 VALUES (1, '{"007"}');
+    SELECT vals[1], TYPEOF(vals[1]) FROM (SELECT vals FROM taut1 UNION SELECT vals FROM taut1) AS t0;
+}
+expect {
+    007|text
+}
+
+test array-cast-of-a-column-still-renders-as-array-text {
+    CREATE TABLE act1 (id INTEGER PRIMARY KEY, vals integer[]) STRICT;
+    INSERT INTO act1 VALUES (1, '{1,2,3}');
+    SELECT CAST(vals AS INTEGER[]) FROM act1;
+}
+expect {
+    {1,2,3}
+}

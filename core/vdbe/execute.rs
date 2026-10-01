@@ -150,11 +150,12 @@ impl OpenedBTree {
 
 use super::{
     array::{
-        array_values_from_blob, compare_arrays, compute_array_length, compute_array_length_at_dim,
-        exec_array_append, exec_array_cat, exec_array_contains, exec_array_contains_all,
-        exec_array_overlap, exec_array_position, exec_array_prepend, exec_array_remove,
-        exec_array_slice, exec_array_to_string, exec_string_to_array, make_array_from_registers,
-        parse_text_array, serialize_array_from_blob, values_to_record_blob,
+        array_values_from_any, array_values_from_blob, compare_arrays, compute_array_length,
+        compute_array_length_at_dim, exec_array_append, exec_array_cat, exec_array_contains,
+        exec_array_contains_all, exec_array_overlap, exec_array_position, exec_array_prepend,
+        exec_array_remove, exec_array_slice, exec_array_to_string, exec_string_to_array,
+        make_array_from_registers, parse_text_array, serialize_array_from_blob,
+        values_to_record_blob,
     },
     insn::{
         AddSequenceData, AggStepData, ArrayEncodeData, ClearBtreeCount, Cookie, IntegrityCkData,
@@ -2901,7 +2902,9 @@ pub fn op_array_element(
                 .unwrap_or(Value::Null),
             Err(_) => Value::Null,
         },
-        _ => Value::Null,
+        _ => array_values_from_any(arr_val)
+            .and_then(|values| values.into_iter().nth(idx))
+            .unwrap_or(Value::Null),
     };
 
     state.registers[*dest].set_value(result);
@@ -12361,15 +12364,18 @@ pub fn op_end_coroutine(
 ) -> InsnResult {
     load_insn!(EndCoroutine { yield_reg }, insn);
 
-    if let Value::Numeric(Numeric::Integer(pc)) = state.registers[*yield_reg].get_value() {
-        state.ended_coroutine.push(*yield_reg as u32);
-        let pc: u32 = (*pc)
-            .try_into()
-            .unwrap_or_else(|_| panic!("EndCoroutine: pc overflow: {pc}"));
-        state.pc = pc - 1; // yield jump is always next to yield. Here we subtract 1 to go back to yield instruction
-    } else {
-        unreachable!();
-    }
+    let Value::Numeric(Numeric::Integer(pc)) = state.registers[*yield_reg].get_value() else {
+        return Err(LimboError::InternalError(format!(
+            "EndCoroutine: yield_reg {} contains non-integer value: {:?}",
+            *yield_reg, state.registers[*yield_reg]
+        ))
+        .into());
+    };
+    state.ended_coroutine.push(*yield_reg as u32);
+    let pc: u32 = (*pc)
+        .try_into()
+        .map_err(|_| LimboError::InternalError(format!("EndCoroutine: pc overflow: {pc}")))?;
+    state.pc = pc - 1; // yield jump is always next to yield. Here we subtract 1 to go back to yield instruction
     Ok(InsnFunctionStepResult::Step)
 }
 
@@ -12388,40 +12394,40 @@ pub fn op_yield(
         },
         insn
     );
-    if let Value::Numeric(Numeric::Integer(pc)) = state.registers[*yield_reg].get_value() {
-        if state.ended_coroutine.contains(&(*yield_reg as u32)) {
-            state.pc = end_offset.as_offset_int();
-        } else {
-            let pc: u32 = (*pc)
-                .try_into()
-                .unwrap_or_else(|_| panic!("Yield: pc overflow: {pc}"));
-            // swap the program counter with the value in the yield register
-            // this is the mechanism that allows jumping back and forth between the coroutine and the caller
-            state.registers[*yield_reg].set_int((state.pc + 1) as i64);
-            state.pc = pc;
+    let Value::Numeric(Numeric::Integer(pc)) = state.registers[*yield_reg].get_value() else {
+        return Err(LimboError::InternalError(format!(
+            "Yield: yield_reg {} contains non-integer value: {:?}",
+            *yield_reg, state.registers[*yield_reg]
+        ))
+        .into());
+    };
+    if state.ended_coroutine.contains(&(*yield_reg as u32)) {
+        state.pc = end_offset.as_offset_int();
+    } else {
+        let pc: u32 = (*pc)
+            .try_into()
+            .map_err(|_| LimboError::InternalError(format!("Yield: pc overflow: {pc}")))?;
+        // swap the program counter with the value in the yield register
+        // this is the mechanism that allows jumping back and forth between the coroutine and the caller
+        state.registers[*yield_reg].set_int((state.pc + 1) as i64);
+        state.pc = pc;
 
-            // Strip JSON subtypes from co-routine output columns so they do not
-            // survive the subquery boundary, matching SQLite's OP_Copy P5=0x0002.
-            // subtype_clear_count > 0 only for coroutine body yields.
-            #[cfg(feature = "json")]
-            if *subtype_clear_count > 0 {
-                use crate::types::TextSubtype;
-                for reg in &mut state.registers
-                    [*subtype_clear_start_reg..*subtype_clear_start_reg + *subtype_clear_count]
-                {
-                    if let Register::Value(Value::Text(text)) = reg {
-                        if text.subtype == TextSubtype::Json {
-                            text.subtype = TextSubtype::Text;
-                        }
+        // Strip JSON subtypes from co-routine output columns so they do not
+        // survive the subquery boundary, matching SQLite's OP_Copy P5=0x0002.
+        // subtype_clear_count > 0 only for coroutine body yields.
+        #[cfg(feature = "json")]
+        if *subtype_clear_count > 0 {
+            use crate::types::TextSubtype;
+            for reg in &mut state.registers
+                [*subtype_clear_start_reg..*subtype_clear_start_reg + *subtype_clear_count]
+            {
+                if let Register::Value(Value::Text(text)) = reg {
+                    if text.subtype == TextSubtype::Json {
+                        text.subtype = TextSubtype::Text;
                     }
                 }
             }
         }
-    } else {
-        unreachable!(
-            "yield_reg {} contains non-integer value: {:?}",
-            *yield_reg, state.registers[*yield_reg]
-        );
     }
     Ok(InsnFunctionStepResult::Step)
 }

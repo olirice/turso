@@ -804,6 +804,9 @@ pub(crate) fn expr_is_array(expr: &Expr, referenced_tables: Option<&TableReferen
         Expr::Array { .. } | Expr::Subscript { .. } => {
             unreachable!("Array and Subscript are desugared into function calls by the parser")
         }
+        Expr::Cast { type_name, .. } => {
+            type_name.as_ref().is_some_and(|tn| tn.array_dimensions > 0)
+        }
         Expr::Binary(lhs, ast::Operator::Concat, rhs) => {
             expr_is_array(lhs, referenced_tables) || expr_is_array(rhs, referenced_tables)
         }
@@ -845,6 +848,7 @@ pub(super) fn expr_array_dimensions(expr: &Expr, tables: &TableReferences) -> u3
         Expr::Subscript { .. } | Expr::Array { .. } => {
             unreachable!("Array and Subscript are desugared into function calls by the parser")
         }
+        Expr::Cast { type_name, .. } => type_name.as_ref().map_or(0, |tn| tn.array_dimensions),
         _ => 0,
     }
 }
