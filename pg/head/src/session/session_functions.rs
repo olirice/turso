@@ -1,7 +1,7 @@
 use crate::analyze::functions::FunctionHandle;
 use crate::analyze::plan::{
     ResolvedFrom, ResolvedFromItem, ResolvedJoin, ResolvedOrderItem, ResolvedOrderTarget,
-    ResolvedQuery, ResolvedSimpleSelect, RowSecurityFact,
+    ResolvedQuery, ResolvedSimpleSelect,
 };
 use crate::analyze::typing::{walk_typed_map, Scalar, Typed, TypedMap};
 use crate::error::{HeadError, NotSupportedFeature};
@@ -154,12 +154,7 @@ impl Fold<'_> {
                 slot,
                 oid,
                 backing,
-                security: match security {
-                    RowSecurityFact::Enforced(typed) => {
-                        RowSecurityFact::Enforced(self.enter(typed)?)
-                    }
-                    other @ RowSecurityFact::Unfiltered | other @ RowSecurityFact::Refused => other,
-                },
+                security: security.map_predicate(|typed| self.enter(typed))?,
             },
             ResolvedFromItem::Derived { slot, query } => ResolvedFromItem::Derived {
                 slot,

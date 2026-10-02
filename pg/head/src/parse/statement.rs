@@ -14,6 +14,7 @@ use crate::ident::{
 use crate::parse::expr::Expr;
 use crate::parse::Location;
 use crate::security::privileges::PrivilegeKeyword;
+use crate::security::row_security::PolicyCommand;
 use crate::session::settings::{KnownSetting, SettingValue};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -64,6 +65,7 @@ pub(crate) enum Statement {
         name: PolicyName,
         table: RelationName,
         roles: Vec<GranteeName>,
+        command: PolicyCommand,
         using: Expr,
     },
     AlterRowSecurity {

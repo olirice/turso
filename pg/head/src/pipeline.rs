@@ -10,6 +10,7 @@ use crate::ident::RoleName;
 use crate::lower;
 use crate::parse::statement::{CommandTag, Statement};
 use crate::security::enforcement::{Checked, Kind};
+use crate::security::row_security::RowSecurityDecision;
 use crate::security::{authorization, enforcement};
 use crate::session::session_functions;
 use crate::session::{Context, SessionEffect, Settings};
@@ -91,7 +92,6 @@ pub(crate) struct Analyzed {
     resolved: analyze::Resolved,
     role: Role,
     identity: RoleName,
-    row_security: bool,
 }
 
 pub(crate) struct Authorized {
@@ -119,6 +119,7 @@ pub(crate) enum Engine {
 
 pub(crate) struct InsertRows {
     pub(crate) table: TableRef,
+    pub(crate) security: RowSecurityDecision,
     pub(crate) columns: Vec<InsertColumn>,
     pub(crate) rows: Vec<Vec<turso_core::Value>>,
 }
@@ -155,17 +156,11 @@ pub(crate) fn analyze(
         resolved: analyze::resolve(admitted.statement, &lookup)?,
         role,
         identity: context.identity.clone(),
-        row_security: context.settings.row_security,
     })
 }
 
 pub(crate) fn authorize(analyzed: Analyzed, catalog: &Catalog) -> Result<Authorized, HeadError> {
-    enforcement::refuse_when_row_security_is_off(
-        &analyzed.resolved,
-        analyzed.role,
-        analyzed.row_security,
-        catalog,
-    )?;
+    enforcement::refuse_when_row_security_is_off(&analyzed.resolved)?;
     authorization::check(&analyzed.resolved, analyzed.role, catalog)?;
     Ok(Authorized { analyzed })
 }
@@ -175,11 +170,9 @@ pub(crate) fn enforce(authorized: Authorized, catalog: &Catalog) -> Result<Enfor
         resolved,
         role,
         identity,
-        ..
     } = authorized.analyzed;
-    let context = enforcement::Context { role };
     Ok(Enforced {
-        checked: enforcement::check(resolved, &context, catalog)?,
+        checked: enforcement::check(resolved, catalog)?,
         role,
         identity,
     })
@@ -218,12 +211,14 @@ pub(crate) fn lower(
         },
         Kind::Insert {
             table,
+            security,
             columns,
             rows,
         } => Lowered {
             result: ResultShape::Insert(rows.len()),
             command: Engine::InsertRows(InsertRows {
                 table,
+                security,
                 columns,
                 rows,
             }),
@@ -309,6 +304,7 @@ pub(crate) fn lower(
             name,
             table,
             roles,
+            command,
             using,
             referenced_columns,
             next_oid,
@@ -321,6 +317,7 @@ pub(crate) fn lower(
                     name,
                     table,
                     roles,
+                    command,
                     using: using.into_text(),
                     referenced_columns,
                 },

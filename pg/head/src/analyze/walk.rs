@@ -4,7 +4,7 @@ use std::rc::Rc;
 use crate::analyze::functions::FunctionHandle;
 use crate::analyze::plan::{
     ResolvedFrom, ResolvedFromItem, ResolvedJoin, ResolvedOrderItem, ResolvedOrderTarget,
-    ResolvedQuery, ResolvedSimpleSelect, RowSecurityFact,
+    ResolvedQuery, ResolvedSimpleSelect,
 };
 use crate::analyze::typing::{self, RelationShape, RelationSlot, Scope, ScopeRelation, Typed};
 use crate::catalog::{Backing, Column, Oid, Table};
@@ -16,6 +16,7 @@ use crate::parse::statement::{
     SimpleSelect,
 };
 use crate::parse::Location;
+use crate::security::row_security::{self, RowSecurityDecision};
 
 use super::Lookup;
 
@@ -383,19 +384,15 @@ fn resolve_table_ref<'a>(
     };
     let slot = ctx.allocate_slot();
     let visible_as = alias.unwrap_or_else(|| relation.name.clone());
-    let security = match row_security_fact(found, ctx.lookup) {
-        RowSecurityFact::Enforced(predicate) => {
-            RowSecurityFact::Enforced(typing::retarget(&predicate, slot))
-        }
-        other @ RowSecurityFact::Unfiltered | other @ RowSecurityFact::Refused => other,
-    };
-    ctx.references.push(RelationFact {
-        oid: found.oid,
-        name: relation.name.clone(),
-        owner: found.owner,
-        checked_as: ctx.privilege_actor,
-        refused: matches!(security, RowSecurityFact::Refused),
-    });
+    let (reference, security) = reference_for(
+        found,
+        &relation.name,
+        ctx.privilege_actor,
+        row_security::Access::Read,
+        ctx.lookup,
+    )?;
+    let security = security.retargeted(slot);
+    ctx.references.push(reference);
     let shape = RelationShape::Catalog(found);
     ctx.slot_relations.insert(slot, shape.clone());
     Ok((
@@ -566,26 +563,28 @@ fn resolve_function_ref<'a>(
     ))
 }
 
-fn row_security_fact(found: &Table, lookup: &Lookup) -> RowSecurityFact {
-    let role = lookup.role;
-    if !found.rls_enabled || role.superuser || (found.owner == role.oid && !found.rls_forced) {
-        return RowSecurityFact::Unfiltered;
-    }
-    if !lookup.row_security {
-        return RowSecurityFact::Refused;
-    }
-    let mut applicable = found
-        .policies
-        .iter()
-        .filter(|policy| Table::applies_to(policy, role.oid))
-        .map(|policy| policy.using.clone())
-        .collect::<Vec<_>>();
-    let predicate = match applicable.len() {
-        0 => Typed::AlwaysFalse,
-        1 => applicable.remove(0),
-        _ => Typed::Or(applicable),
+/// A relation reference's row-security decision (`security::row_security::decide`,
+/// the one place it is made) alongside the bookkeeping `authorization` and
+/// `refuse_when_row_security_is_off` need for it: the one mechanism both
+/// `resolve_table_ref` (`Access::Read`) and `analyze::ddl::insert`
+/// (`Access::Insert`) go through, so an insert's target is checked the
+/// same way a read's relation reference is.
+pub(super) fn reference_for(
+    found: &Table,
+    relation_name: &TableName,
+    checked_as: Oid,
+    access: row_security::Access,
+    lookup: &Lookup,
+) -> Result<(RelationFact, RowSecurityDecision), HeadError> {
+    let security = row_security::decide(found, lookup.role, access, lookup.row_security)?;
+    let reference = RelationFact {
+        oid: found.oid,
+        name: relation_name.clone(),
+        owner: found.owner,
+        checked_as,
+        refused: security.is_refused(),
     };
-    RowSecurityFact::Enforced(predicate)
+    Ok((reference, security))
 }
 
 pub(super) fn table<'a>(

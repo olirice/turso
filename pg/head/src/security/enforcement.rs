@@ -7,11 +7,12 @@ use crate::analyze::typing::{self, RelationSlot, Scope, Typed};
 use crate::analyze::{
     GrantTarget, InsertColumn, OutputSpec, RelationFact, Resolved, SelectPlan, TableRef,
 };
-use crate::catalog::{Catalog, NewNotNullConstraint, NewPrimaryKey, Oid, Role, Table};
+use crate::catalog::{Catalog, NewNotNullConstraint, NewPrimaryKey, Oid, Table};
 use crate::error::{HeadError, NotSupportedFeature, PgError};
 use crate::ident::{PolicyName, PreparedName, RoleName, TableName};
 use crate::parse::statement::{ColumnDef, CommandTag, RowSecurityChange};
 use crate::render;
+use crate::security::row_security::{self, RowSecurityDecision};
 use crate::session::settings::{KnownSetting, SettingValue};
 use crate::{catalog, OutputColumn};
 
@@ -26,6 +27,7 @@ pub(crate) enum Kind {
     },
     Insert {
         table: TableRef,
+        security: RowSecurityDecision,
         columns: Vec<InsertColumn>,
         rows: Vec<Vec<Value>>,
     },
@@ -48,6 +50,7 @@ pub(crate) enum Kind {
         name: PolicyName,
         table: Oid,
         roles: Vec<catalog::Grantee>,
+        command: row_security::PolicyCommand,
         using: Stored,
         referenced_columns: BTreeSet<catalog::Attnum>,
         next_oid: Oid,
@@ -85,20 +88,7 @@ impl Checked {
     }
 }
 
-enum RowSecurity {
-    Unfiltered,
-    Filtered,
-}
-
-pub(crate) struct Context {
-    pub(crate) role: Role,
-}
-
-pub(crate) fn check(
-    resolved: Resolved,
-    context: &Context,
-    catalog: &Catalog,
-) -> Result<Checked, HeadError> {
+pub(crate) fn check(resolved: Resolved, catalog: &Catalog) -> Result<Checked, HeadError> {
     match resolved {
         Resolved::CreateTable {
             oid,
@@ -121,17 +111,20 @@ pub(crate) fn check(
         }
         Resolved::Insert {
             table,
+            reference: _,
+            security,
             columns,
             rows,
         } => {
             refuse_catalog_write(&table, CommandTag::Insert)?;
-            if let RowSecurity::Filtered = row_security(&table, context, catalog)? {
+            if !security.admits_insert()? {
                 return Err(HeadError::raise(PgError::NewRowViolatesRowSecurity {
-                    table: table.name.clone(),
+                    table: table.name,
                 }));
             }
             Ok(Checked(Kind::Insert {
                 table,
+                security,
                 columns,
                 rows,
             }))
@@ -174,6 +167,7 @@ pub(crate) fn check(
             name,
             table,
             roles,
+            command,
             using,
             next_oid,
         } => {
@@ -191,6 +185,7 @@ pub(crate) fn check(
                 name,
                 table: table.oid,
                 roles,
+                command,
                 using,
                 referenced_columns,
                 next_oid,
@@ -232,15 +227,10 @@ pub(crate) fn check(
     }
 }
 
-pub(crate) fn refuse_when_row_security_is_off(
-    resolved: &Resolved,
-    role: Role,
-    row_security: bool,
-    catalog: &Catalog,
-) -> Result<(), HeadError> {
-    let table = match resolved {
-        Resolved::Select(plan) => return refuse_first_refused_reference(&plan.references),
-        Resolved::Insert { table, .. } => table,
+pub(crate) fn refuse_when_row_security_is_off(resolved: &Resolved) -> Result<(), HeadError> {
+    let references: &[RelationFact] = match resolved {
+        Resolved::Select(plan) => &plan.references,
+        Resolved::Insert { reference, .. } => std::slice::from_ref(reference),
         Resolved::CreateTable { .. }
         | Resolved::CreateRole { .. }
         | Resolved::Grant { .. }
@@ -254,11 +244,7 @@ pub(crate) fn refuse_when_row_security_is_off(
         | Resolved::Set { .. }
         | Resolved::Prepare { .. } => return Ok(()),
     };
-    let found = found_table(table, catalog)?;
-    if row_security || exempt(found, role) {
-        return Ok(());
-    }
-    Err(row_security_off_error(&table.name, role.oid == found.owner))
+    refuse_first_refused_reference(references)
 }
 
 fn refuse_first_refused_reference(references: &[RelationFact]) -> Result<(), HeadError> {
@@ -280,23 +266,6 @@ fn row_security_off_error(name: &TableName, caller_is_owner: bool) -> HeadError 
         table: name.clone(),
         caller_is_owner,
     })
-}
-
-fn row_security(
-    table: &TableRef,
-    context: &Context,
-    catalog: &Catalog,
-) -> Result<RowSecurity, HeadError> {
-    let role = context.role;
-    let found = found_table(table, catalog)?;
-    if exempt(found, role) {
-        return Ok(RowSecurity::Unfiltered);
-    }
-    Ok(RowSecurity::Filtered)
-}
-
-fn exempt(table: &Table, role: Role) -> bool {
-    !table.rls_enabled || role.superuser || (table.owner == role.oid && !table.rls_forced)
 }
 
 /// Type-checks a policy's `USING` expression, whether it came from a live
@@ -342,8 +311,11 @@ impl Stored {
         self.text
     }
 
-    pub(crate) fn into_typed(self) -> Typed {
-        self.typed
+    /// The only constructor of a `Policy`'s stored predicate: `enforcement`
+    /// is inside `security`, so it may build one directly; `catalog` and
+    /// `engine::store::load`, which hold the result, cannot.
+    pub(crate) fn into_predicate(self) -> row_security::PolicyPredicate {
+        row_security::PolicyPredicate { typed: self.typed }
     }
 }
 

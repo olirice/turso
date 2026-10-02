@@ -148,7 +148,8 @@ pub(crate) struct NotNullConstraint {
 pub(crate) struct Policy {
     pub(crate) name: PolicyName,
     pub(crate) roles: Vec<Grantee>,
-    pub(crate) using: crate::analyze::typing::Typed,
+    pub(crate) command: crate::security::row_security::PolicyCommand,
+    pub(crate) using: crate::security::row_security::PolicyPredicate,
 }
 
 #[derive(Clone)]
@@ -206,6 +207,7 @@ pub(crate) enum CatalogWrite {
         name: PolicyName,
         table: Oid,
         roles: Vec<Grantee>,
+        command: crate::security::row_security::PolicyCommand,
         using: String,
         referenced_columns: BTreeSet<Attnum>,
     },

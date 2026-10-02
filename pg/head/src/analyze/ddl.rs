@@ -13,6 +13,7 @@ use crate::parse::statement::{
 };
 use crate::parse::Location;
 use crate::security::privileges::{ObjectKind, Privileges};
+use crate::security::row_security;
 
 use super::walk;
 use super::{Lookup, Resolved};
@@ -316,8 +317,17 @@ pub(super) fn insert(
             Ok(values)
         })
         .collect::<Result<Vec<_>, HeadError>>()?;
+    let (reference, security) = walk::reference_for(
+        table,
+        name,
+        lookup.role.oid,
+        row_security::Access::Insert,
+        lookup,
+    )?;
     Ok(Resolved::Insert {
         table: walk::table_ref(relation, table),
+        reference,
+        security,
         columns: table
             .columns
             .iter()

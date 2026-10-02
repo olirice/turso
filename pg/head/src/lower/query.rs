@@ -4,7 +4,7 @@ use turso_parser::ast;
 use crate::analyze::functions::FunctionHandle;
 use crate::analyze::plan::{
     ResolvedFrom, ResolvedFromItem, ResolvedOrderItem, ResolvedOrderTarget, ResolvedQuery,
-    ResolvedSimpleSelect, RowSecurityFact,
+    ResolvedSimpleSelect,
 };
 use crate::analyze::typing::{RelationSlot, Typed};
 use crate::analyze::OutputSpec;
@@ -281,8 +281,21 @@ fn physical_select_table(
             security,
             ..
         } => {
-            let base = match backing {
-                Backing::User => sql::aliased_table(Relation::Table(*oid), &alias),
+            match backing {
+                Backing::User => {
+                    // Only a value `security::row_security::decide` minted can
+                    // produce a scan of a user table: `scan_predicate` fails
+                    // closed if row security was ever refused for it.
+                    let predicate = security.scan_predicate()?;
+                    let base = sql::aliased_table(Relation::Table(*oid), &alias);
+                    match predicate {
+                        None => Ok(base),
+                        Some(predicate) => {
+                            let predicate = lower(predicate, params, current_user, catalog)?;
+                            Ok(sql::policed(base, &alias, predicate))
+                        }
+                    }
+                }
                 Backing::Catalog { constant, project } => {
                     let found = catalog.catalog_relation_by_oid(*oid).ok_or_else(|| {
                         HeadError::internal(
@@ -298,21 +311,11 @@ fn physical_select_table(
                         relations.push(Relation::Table(*oid));
                     }
                     match relations.as_slice() {
-                        [] => sql::aliased_empty(&columns, &alias),
-                        [only] => sql::aliased_table(*only, &alias),
-                        _ => sql::aliased_union(&relations, &columns, &alias)?,
+                        [] => Ok(sql::aliased_empty(&columns, &alias)),
+                        [only] => Ok(sql::aliased_table(*only, &alias)),
+                        _ => sql::aliased_union(&relations, &columns, &alias),
                     }
                 }
-            };
-            match security {
-                RowSecurityFact::Unfiltered => Ok(base),
-                RowSecurityFact::Enforced(predicate) => {
-                    let predicate = lower(predicate, params, current_user, catalog)?;
-                    Ok(sql::policed(base, &alias, predicate))
-                }
-                RowSecurityFact::Refused => Err(HeadError::internal(
-                    "a relation reached lowering with row security refused; enforcement must raise this first",
-                )),
             }
         }
         ResolvedFromItem::Derived { query, .. } => {

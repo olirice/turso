@@ -14,6 +14,7 @@ use crate::parse::statement::{
 };
 use crate::parse::Location;
 use crate::security::privileges::PrivilegeKeyword;
+use crate::security::row_security::PolicyCommand;
 
 fn create_table_clause(clause: &'static str) -> HeadError {
     HeadError::not_supported(NotSupportedFeature::CreateTableClause(clause))
@@ -486,34 +487,6 @@ pub(super) fn grant_privileges(grant: &GrantStmt) -> Result<Statement, HeadError
     })
 }
 
-/// PostgreSQL's grammar for `CREATE POLICY ... FOR <command>` hands
-/// `cmd_name` over as one of these five words (`postgres_deparse.c` matches
-/// the same set back the other way); converted once here so every later
-/// decision is an enum match, never a string compare.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PolicyCommand {
-    All,
-    Select,
-    Insert,
-    Update,
-    Delete,
-}
-
-impl PolicyCommand {
-    fn from_parse_tree(cmd_name: &str) -> Result<Self, HeadError> {
-        match cmd_name {
-            "all" => Ok(PolicyCommand::All),
-            "select" => Ok(PolicyCommand::Select),
-            "insert" => Ok(PolicyCommand::Insert),
-            "update" => Ok(PolicyCommand::Update),
-            "delete" => Ok(PolicyCommand::Delete),
-            _ => Err(HeadError::internal(
-                "CREATE POLICY with a command name outside PostgreSQL's ALL/SELECT/INSERT/UPDATE/DELETE set",
-            )),
-        }
-    }
-}
-
 pub(super) fn create_policy(create: &CreatePolicyStmt) -> Result<Statement, HeadError> {
     let CreatePolicyStmt {
         policy_name,
@@ -567,6 +540,7 @@ pub(super) fn create_policy(create: &CreatePolicyStmt) -> Result<Statement, Head
         name: PolicyName::from_parse_tree(PROOF, policy_name.clone())?,
         table: table_name(relation)?,
         roles,
+        command,
         using: expr::admit(PROOF, node(Some(qual))?)?,
     })
 }

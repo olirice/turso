@@ -147,9 +147,18 @@ fn run_insert_rows(
 ) -> Result<Vec<Vec<Value>>, HeadError> {
     let InsertRows {
         table,
+        security,
         columns,
         rows,
     } = insert_rows;
+    // Only a value `security::row_security::decide` minted can reach the
+    // engine for a write: `enforce` must already have turned anything else
+    // into PostgreSQL's own error for it.
+    if !security.admits_insert()? {
+        return Err(HeadError::internal(
+            "an insert reached execution without row security admission",
+        ));
+    }
     let found = catalog
         .table(&table.name)
         .ok_or_else(|| HeadError::internal("an insert target table is missing from the catalog"))?;

@@ -6,20 +6,22 @@ use crate::engine::constant;
 use crate::engine::EngineConnection;
 use crate::error::HeadError;
 use crate::ident::PolicyName;
+use crate::security::row_security::PolicyCommand;
 
-use super::super::rows::{insert_row, DependType, PolicyCommand, SharedDependType};
+use super::super::rows::{insert_row, DependType, SharedDependType};
 use super::dependencies::{write_depend_row, write_shdepend_row, Dependency};
 
 /// Every `pg_policy` column for a `CREATE POLICY`: this head only ever
-/// admits a permissive `SELECT` policy (`ARCH.md`'s scope), so `polcmd`
-/// and `polpermissive` never vary; `polwithcheck` is `None` because a
-/// `SELECT` policy has no `WITH CHECK` clause of its own in PostgreSQL
-/// either.
+/// admits a permissive policy (`ARCH.md`'s scope), so `polpermissive`
+/// never varies; `polwithcheck` is `None` because the only command this
+/// head admits creating (`SELECT`) has no `WITH CHECK` clause of its own
+/// in PostgreSQL either.
 fn policy_row(
     oid: Oid,
     name: &PolicyName,
     table: Oid,
     roles: &[Grantee],
+    command: PolicyCommand,
     using_source: &str,
 ) -> pg::pg_policy::Row {
     let role_values: Vec<i64> = roles
@@ -33,7 +35,7 @@ fn policy_row(
         oid: oid.as_i64(),
         polname: name.as_str().to_string(),
         polrelid: table.as_i64(),
-        polcmd: PolicyCommand::Select.code(),
+        polcmd: command.code(),
         polpermissive: true,
         polroles: role_values,
         polqual: Some(using_source.to_string()),
@@ -47,9 +49,13 @@ pub(super) fn create_policy(
     name: &PolicyName,
     table: Oid,
     roles: &[Grantee],
-    using_source: &str,
-    referenced_columns: &BTreeSet<Attnum>,
+    command: PolicyCommand,
+    // `using_source` and the columns it references always travel together
+    // (both come out of `enforcement::type_check_policy_using` as one
+    // pair): one parameter, not two, to keep this at seven arguments.
+    predicate: (&str, &BTreeSet<Attnum>),
 ) -> Result<(), HeadError> {
+    let (using_source, referenced_columns) = predicate;
     let policy_oid = pg::pg_policy::TABLE.relation_oid();
     let class_oid = pg::pg_class::TABLE.relation_oid();
     let authid_oid = pg::pg_authid::TABLE.relation_oid();
@@ -59,7 +65,7 @@ pub(super) fn create_policy(
             connection,
             object,
             &pg::pg_policy::TABLE,
-            policy_row(oid, name, table, roles, using_source).into_cells()?,
+            policy_row(oid, name, table, roles, command, using_source).into_cells()?,
         )?;
     }
     write_depend_row(

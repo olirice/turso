@@ -44,6 +44,7 @@ pub(crate) fn apply(connection: &EngineConnection, write: CatalogWrite) -> Resul
             name,
             table,
             roles,
+            command,
             using,
             referenced_columns,
         } => policies::create_policy(
@@ -52,8 +53,8 @@ pub(crate) fn apply(connection: &EngineConnection, write: CatalogWrite) -> Resul
             &name,
             table,
             &roles,
-            &using,
-            &referenced_columns,
+            command,
+            (&using, &referenced_columns),
         ),
         CatalogWrite::SetRowSecurity {
             table,
@@ -104,6 +105,7 @@ mod tests {
     use crate::catalog::{AclEntry, Grantee, NewNotNullConstraint, NewPrimaryKey, Oid};
     use crate::ident::{ColumnName, ConstraintName, PolicyName, TableName};
     use crate::parse::statement::ColumnDef;
+    use crate::security::row_security::PolicyCommand;
 
     #[test]
     fn create_table_by_a_superuser_matches_the_postgres_18_capture() {
@@ -607,6 +609,7 @@ mod tests {
                 name: PolicyName::from_catalog(PROOF, "p2"),
                 table: oid,
                 roles: vec![Grantee::Public],
+                command: PolicyCommand::Select,
                 using: "false".to_string(),
                 referenced_columns: BTreeSet::new(),
             },

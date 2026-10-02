@@ -8,6 +8,7 @@ use crate::error::{HeadError, PgError};
 use crate::ident::{PolicyName, PreparedName, RoleName, TableName};
 use crate::parse::expr::Expr;
 use crate::parse::statement::{ColumnDef, GranteeName, RowSecurityChange, SetStatement, Statement};
+use crate::security::row_security::RowSecurityDecision;
 use crate::session::settings::{KnownSetting, SettingValue};
 
 mod ddl;
@@ -41,6 +42,8 @@ pub(crate) enum Resolved {
     },
     Insert {
         table: TableRef,
+        reference: RelationFact,
+        security: RowSecurityDecision,
         columns: Vec<InsertColumn>,
         rows: Vec<Vec<Value>>,
     },
@@ -59,6 +62,7 @@ pub(crate) enum Resolved {
         name: PolicyName,
         table: TableRef,
         roles: Vec<Grantee>,
+        command: crate::security::row_security::PolicyCommand,
         using: Expr,
         next_oid: Oid,
     },
@@ -135,6 +139,7 @@ pub(crate) fn resolve(statement: Statement, lookup: &Lookup) -> Result<Resolved,
             name,
             table: relation,
             roles,
+            command,
             using,
         } => {
             // PostgreSQL 18 resolves a policy's TO role list before it looks
@@ -161,6 +166,7 @@ pub(crate) fn resolve(statement: Statement, lookup: &Lookup) -> Result<Resolved,
                 next_oid: oids.next(),
                 name,
                 roles,
+                command,
                 using,
             })
         }

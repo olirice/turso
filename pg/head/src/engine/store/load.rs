@@ -16,6 +16,7 @@ use crate::ident::{
 };
 use crate::lower::sql;
 use crate::security::privileges::ObjectKind;
+use crate::security::row_security::PolicyCommand;
 
 use super::rows::{
     code_value, decode_acl_element, integer, malformed, read_array, select_rows,
@@ -335,6 +336,7 @@ fn load_policies(
             pg::pg_policy::OID.into(),
             pg::pg_policy::POLRELID.into(),
             pg::pg_policy::POLNAME.into(),
+            pg::pg_policy::POLCMD.into(),
             pg::pg_policy::POLQUAL.into(),
         ],
         None,
@@ -344,7 +346,7 @@ fn load_policies(
             pg::pg_policy::POLNAME.into(),
         ],
     )? {
-        let [oid, table, name, using_tree] = row.as_slice() else {
+        let [oid, table, name, polcmd, using_tree] = row.as_slice() else {
             return Err(malformed("pg_policy"));
         };
         let policy_oid = integer(oid)?;
@@ -370,12 +372,17 @@ fn load_policies(
             .iter()
             .find(|(_, table)| table.oid.as_i64() == table_oid)
             .ok_or_else(|| malformed("pg_policy"))?;
+        let command = text(polcmd)?
+            .chars()
+            .next()
+            .ok_or_else(|| malformed("pg_policy"))
+            .and_then(PolicyCommand::from_code)?;
         let stored = text(using_tree)?;
         let using = crate::parse::stored_expression(&stored)
             .and_then(|expr| {
                 crate::security::enforcement::type_check_policy_using(expr, table_name, found_table)
             })
-            .map(|(stored, _)| stored.into_typed())
+            .map(|(stored, _)| stored.into_predicate())
             .map_err(|error| {
                 HeadError::internal(format!(
                     "a stored policy expression is corrupt: {}",
@@ -385,6 +392,7 @@ fn load_policies(
         policies.entry(table_oid).or_default().push(Policy {
             name: PolicyName::from_catalog(PROOF, text(name)?),
             roles,
+            command,
             using,
         });
     }

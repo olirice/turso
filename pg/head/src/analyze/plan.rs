@@ -2,6 +2,7 @@ use crate::analyze::functions::FunctionHandle;
 use crate::analyze::typing::{RelationSlot, Typed};
 use crate::catalog::{Backing, Oid};
 use crate::parse::statement::JoinKind;
+use crate::security::row_security::RowSecurityDecision;
 
 #[derive(Debug, Clone)]
 pub(crate) struct ResolvedQuery {
@@ -50,7 +51,7 @@ pub(crate) enum ResolvedFromItem {
         slot: RelationSlot,
         oid: Oid,
         backing: Backing,
-        security: RowSecurityFact,
+        security: RowSecurityDecision,
     },
     Derived {
         slot: RelationSlot,
@@ -71,11 +72,4 @@ impl ResolvedFromItem {
             | ResolvedFromItem::Function { slot, .. } => *slot,
         }
     }
-}
-
-#[derive(Debug, Clone)]
-pub(crate) enum RowSecurityFact {
-    Unfiltered,
-    Enforced(Typed),
-    Refused,
 }

@@ -97,18 +97,6 @@ impl SharedDependType {
     }
 }
 
-pub(super) enum PolicyCommand {
-    Select,
-}
-
-impl PolicyCommand {
-    pub(super) fn code(self) -> char {
-        match self {
-            PolicyCommand::Select => 'r',
-        }
-    }
-}
-
 pub(super) fn table_exists(
     connection: &EngineConnection,
     table: &pg::Table,
