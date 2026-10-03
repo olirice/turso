@@ -9,8 +9,17 @@ PostgreSQL wire protocol. It exists to prove, against a live PostgreSQL
 byte for byte and reproduce PostgreSQL's privilege and row-security
 decisions through one typed path.
 
+It is a baseline for building full PostgreSQL support on, not a proposed
+product scope: the admitted surface is the smallest that proves the two
+feedback loops (PostgreSQL-recorded transcripts and the pg_dump round
+trip) and row security end to end; widening it is expected to follow the
+pattern below. It shares foundations with Turso's own `postgres/`
+frontend (libpg_query, the `Dialect` hooks, pgwire) but no code, and
+optimizes the opposite way: a small surface held exactly to PostgreSQL,
+with everything else refused, rather than broad best-effort coverage.
+
 `examples/pg-head/demo.sh` shows it in a minute: row security, a refusal and
-`pg_dump`, over a live `pg-head-server`.
+`pg_dump`, over a live `pg-head-server`. `make test-pg-head` runs every test.
 
 ## Rules
 
@@ -133,10 +142,18 @@ lowering for literal arguments, evaluated per returned row for columns
 (only as a top-level select item). No function reads the database from
 inside the engine. `FunctionHandle::evaluation` decides this.
 
-**Row security.** The relation walk records, per reference, the role it
-is checked as and its row-security decision. Lowering splices each policy
-predicate in as a derived table at that reference, so outer joins stay
-correct. A view is checked as its owner.
+**Row security.** `security::row_security::decide` is the only place the
+exemption rule (RLS disabled, superuser, or owner without `FORCE`) exists
+and the only reader of policy predicates, which are private to
+`security`. Every table access, read or `INSERT` target, gets its
+decision through the relation walk for a closed `Access`; the decision is
+an opaque type only `decide` builds, and lowering needs one to scan or
+write a user table. `decide` matches each access against each policy's
+stored command (`pg_policy.polcmd`) with no wildcard and fails closed on
+commands not yet admitted, so `INSERT` policies or `WITH CHECK` can only
+arrive through it. Lowering splices the read predicate in as a derived
+table at each reference, so outer joins stay correct. A view is checked
+as its owner.
 
 **Uniqueness.** Every write holds the single writer lock, so the head
 checks each inserted row's primary key and raises `23505` itself. An
