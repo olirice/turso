@@ -108,8 +108,3 @@ PostgreSQL. `make test-pg-head` runs everything.
 [`examples/pg/demo.sh`](../../examples/pg/demo.sh) starts a server and shows
 a row-security policy hiding another user's row, an unsupported statement
 refused, and `pg_dump` reading the schema and policy back.
-
-`postgres/` takes a different route to full compatibility: it accepts
-virtually all PostgreSQL syntax and grows by the share of PostgreSQL's
-regression tests that pass. `pg` starts closed and exact, and widens one
-verified piece at a time. [`ARCH.md`](ARCH.md) has the design in detail.
