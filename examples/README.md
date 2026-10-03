@@ -10,4 +10,4 @@
 
 ## PostgreSQL head
 
-- [`pg-head`](./pg-head/): the minimal PostgreSQL head over psql and pg_dump: row security, a refusal, and a dump
+- [`pg`](./pg/): the minimal PostgreSQL head over psql and pg_dump: row security, a refusal, and a dump

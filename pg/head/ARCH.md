@@ -18,7 +18,7 @@ frontend (libpg_query, the `Dialect` hooks, pgwire) but no code, and
 optimizes the opposite way: a small surface held exactly to PostgreSQL,
 with everything else refused, rather than broad best-effort coverage.
 
-`examples/pg-head/demo.sh` shows it in a minute: row security, a refusal and
+`examples/pg/demo.sh` is a simple demo: row security, a refusal and
 `pg_dump`, over a live `pg-head-server`. `make test-pg-head` runs every test.
 
 ## Rules
